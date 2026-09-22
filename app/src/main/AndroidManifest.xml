@@ -24,6 +24,16 @@
         </activity>
 
         <activity
+            android:name=".DiagnosticActivity"
+            android:exported="true"
+            android:label="抖音極速版 UI 診斷">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".SettingsActivity"
             android:exported="false" />
 

@@ -23,8 +23,8 @@ android {
         applicationId = "com.jev.probe"
         minSdk = 30
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.3-douyin-diag-v2"
+        versionCode = 6
+        versionName = "0.2.0-douyin-lite"
 
         // ML Kit's bundled Chinese recognizer ships native libs for every ABI.
         // The target phone (and every phone this can run on: minSdk 30) is
@@ -35,6 +35,15 @@ android {
     }
 
     signingConfigs {
+        val douyinTestStore = System.getenv("JEV_DOUYIN_TEST_KEYSTORE")
+        if (!douyinTestStore.isNullOrBlank()) {
+            create("douyinTest") {
+                storeFile = file(douyinTestStore)
+                storePassword = System.getenv("JEV_DOUYIN_TEST_STOREPASS")
+                keyAlias = System.getenv("JEV_DOUYIN_TEST_ALIAS")
+                keyPassword = System.getenv("JEV_DOUYIN_TEST_KEYPASS")
+            }
+        }
         if (releaseProps.isNotEmpty()) {
             create("release") {
                 storeFile = file(releaseProps.getProperty("storeFile"))
@@ -48,7 +57,8 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".douyindiagnostic"
-            versionNameSuffix = "-douyin-ui-diagnostic"
+            versionNameSuffix = "-test"
+            signingConfig = signingConfigs.findByName("douyinTest") ?: signingConfigs.getByName("debug")
         }
         release {
             isMinifyEnabled = false

@@ -45,6 +45,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".douyindiagnostic"
+            versionNameSuffix = "-douyin-ui-diagnostic"
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")

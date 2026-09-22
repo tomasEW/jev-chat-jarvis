@@ -53,7 +53,7 @@ class DiagnosticActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
         })
         layout.addView(TextView(this).apply {
-            text = "1. 先在 Jev 主程式開啟無障礙權限。\n" +
+            text = "1. 到 Android 無障礙設定，開啟「抖音極速版 UI 診斷」服務。\n" +
                 "2. 進入抖音極速版的測試用私訊對話，確認雙方都有訊息。\n" +
                 "3. 回到此診斷工具，按下方按鈕將最近擷取的節點匯出成 JSON。\n" +
                 "只擷取抖音極速版的無障礙節點，不截圖、不 OCR、不呼叫 AI。請使用測試對話。"
@@ -76,8 +76,8 @@ class DiagnosticActivity : AppCompatActivity() {
             pendingExport = null
             refresh()
         }
-        button("開啟 Jev 主程式／設定權限") {
-            startActivity(Intent(this, MainActivity::class.java))
+        button("開啟 Android 無障礙設定") {
+            startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         setContentView(layout)
     }

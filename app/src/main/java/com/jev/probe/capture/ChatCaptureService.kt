@@ -450,11 +450,11 @@ open class ChatCaptureService : AccessibilityService() {
     private fun cleanDouyinBubbleText(raw: String): String {
         var t = raw.trim()
         if (t.isEmpty()) return ""
-        t = t.replace(Regex("""(^|\\s)[▶▷►]?\\s*\\d{1,3}\\s*["″”'](?=\\s|$)"""), " ").trim()
-        t = t.replace(Regex("""(周[一二三四五六日天]|今天|昨天)\\s*\\d{1,2}[:：]\\d{2}"""), " ").trim()
-        t = t.replace(Regex("""\\s+"""), " ").trim()
+        t = t.replace(Regex("""(^|\s)[▶▷►]?\s*\d{1,3}\s*["″”'](?=\s|$)"""), " ").trim()
+        t = t.replace(Regex("""(周[一二三四五六日天]|今天|昨天)\s*\d{1,2}[:：]\d{2}"""), " ").trim()
+        t = t.replace(Regex("""\s+"""), " ").trim()
         // OCR sometimes sees only the play glyph/duration of an unexpanded voice.
-        if (t.isEmpty() || Regex("""^[▶▷►•·\\s\\d"″”']+$""").matches(t)) return ""
+        if (t.isEmpty() || Regex("""^[▶▷►•·\s\d"″”']+$""").matches(t)) return ""
         return t
     }
 

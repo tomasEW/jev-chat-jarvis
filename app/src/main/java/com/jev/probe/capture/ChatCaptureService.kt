@@ -119,7 +119,21 @@ open class ChatCaptureService : AccessibilityService() {
         Log.i(TAG, "capture service connected")
     }
 
-    // Only Douyin Lite is captured for diagnosis. Keep it in memory and never\n    // enter the normal AI analysis path for this unsupported app.\n    private fun captureDouyinDiagnostic(event: AccessibilityEvent?) {\n        if (event == null || event.eventType !in arrayOf(\n                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,\n                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,\n                AccessibilityEvent.TYPE_VIEW_SCROLLED)) return\n        val root = rootInActiveWindow ?: return\n        if (root.packageName?.toString() == DouyinUiDiagnostic.TARGET_PACKAGE) {\n            runCatching { DouyinUiDiagnostic.capture(root) }\n                .onFailure { Log.w(TAG, "Douyin diagnostic unavailable: ${it.javaClass.simpleName}") }\n        }\n    }\n\n    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    // Only Douyin Lite is captured for diagnosis. Keep it in memory and never
+    // enter the normal AI analysis path for this unsupported app.
+    private fun captureDouyinDiagnostic(event: AccessibilityEvent?) {
+        if (event == null || event.eventType !in arrayOf(
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+                AccessibilityEvent.TYPE_VIEW_SCROLLED)) return
+        val root = rootInActiveWindow ?: return
+        if (root.packageName?.toString() == DouyinUiDiagnostic.TARGET_PACKAGE) {
+            runCatching { DouyinUiDiagnostic.capture(root) }
+                .onFailure { Log.w(TAG, "Douyin diagnostic unavailable: ${it.javaClass.simpleName}") }
+        }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         captureDouyinDiagnostic(event)
         if (!prefs.enabled) { main.post { overlay?.hide() }; return }

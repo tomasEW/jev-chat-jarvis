@@ -508,3 +508,99 @@ class XAdapter : ChatAppAdapter {
 
     private data class Row(val top: Int, val sender: String, val text: String)
 }
+
+
+/**
+ * Douyin Lite private messages (com.ss.android.ugc.aweme.lite).
+ *
+ * Verified from the diagnostic tree: the DM RecyclerView and each visible row
+ * are exposed, but message body text is drawn and absent from accessibility.
+ * We therefore return row rectangles + sender side and let ChatCaptureService
+ * OCR each row. Voice messages are useful only after the user has manually
+ * expanded "显示文字"; an unexpanded voice row OCRs to duration/chrome only and
+ * is discarded by the Douyin OCR cleaner.
+ */
+class DouyinLiteAdapter : ChatAppAdapter {
+    override val pkg = "com.ss.android.ugc.aweme.lite"
+
+    override fun extract(root: AccessibilityNodeInfo, res: Resources): ChatSnapshot? {
+        var recycler: AccessibilityNodeInfo? = null
+        var hasInput = false
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        var guard = 0
+        while (stack.isNotEmpty() && guard < 6000) {
+            guard++
+            val node = stack.removeLast()
+            when (node.viewIdResourceName) {
+                RECYCLER_ID -> recycler = node
+                INPUT_ID -> hasInput = node.isEditable
+            }
+            for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
+        }
+        val list = recycler
+        if (!hasInput || list == null) return null
+
+        val rects = collectDouyinLiteBubbleRects(root, res)
+        val firstTop = rects.minOfOrNull { it.rect.top } ?: Int.MAX_VALUE
+        val title = findTitleInActionBar(root, firstTop, res.displayMetrics.widthPixels, res, 0.15, 0.85)
+        return ChatSnapshot(title, emptyList(), rects,
+            note = "抖音极致版：语音需先手动展开“显示文字”后才会纳入分析")
+    }
+
+    companion object {
+        const val RECYCLER_ID = "com.ss.android.ugc.aweme.lite:id/j4y"
+        const val INPUT_ID = "com.ss.android.ugc.aweme.lite:id/msg_et"
+    }
+}
+
+/** Visible Douyin DM rows with sender side inferred from the avatar column. */
+internal fun collectDouyinLiteBubbleRects(
+    root: AccessibilityNodeInfo,
+    res: Resources
+): List<BubbleRect> {
+    val width = res.displayMetrics.widthPixels
+    var recycler: AccessibilityNodeInfo? = null
+    val stack = ArrayDeque<AccessibilityNodeInfo>()
+    stack.addLast(root)
+    var guard = 0
+    while (stack.isNotEmpty() && guard < 6000) {
+        guard++
+        val n = stack.removeLast()
+        if (n.viewIdResourceName == DouyinLiteAdapter.RECYCLER_ID) {
+            recycler = n
+            break
+        }
+        for (i in n.childCount - 1 downTo 0) n.getChild(i)?.let { stack.addLast(it) }
+    }
+    val list = recycler ?: return emptyList()
+    val out = ArrayList<BubbleRect>()
+    for (i in 0 until list.childCount) {
+        val row = list.getChild(i) ?: continue
+        val rb = Rect(); row.getBoundsInScreen(rb)
+        if (rb.width() <= 0 || rb.height() <= 0 || rb.bottom <= 0) continue
+
+        var leftScore = 0
+        var rightScore = 0
+        val q = ArrayDeque<AccessibilityNodeInfo>()
+        q.addLast(row)
+        var rowGuard = 0
+        while (q.isNotEmpty() && rowGuard < 250) {
+            rowGuard++
+            val n = q.removeLast()
+            val b = Rect(); n.getBoundsInScreen(b)
+            val w = b.width(); val h = b.height()
+            // Avatar-like descendants in the outer columns. The exact avatar
+            // resource-id is not stable, so geometry is deliberately used.
+            if (w in 35..220 && h in 35..220 && kotlin.math.abs(w - h) < 70) {
+                if (b.centerX() < width * 0.24) leftScore++
+                if (b.centerX() > width * 0.76) rightScore++
+            }
+            for (j in n.childCount - 1 downTo 0) n.getChild(j)?.let { q.addLast(it) }
+        }
+        val side = if (rightScore > leftScore) "me" else "other"
+        out.add(BubbleRect(Rect(rb), side))
+    }
+    out.sortBy { it.rect.top }
+    return out
+}

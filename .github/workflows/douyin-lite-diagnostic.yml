@@ -1,4 +1,4 @@
-name: Build Douyin Lite UI diagnostic APK
+name: Build Jev Douyin Lite APK
 
 on:
   workflow_dispatch:
@@ -40,14 +40,32 @@ jobs:
           "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
           test -f "$ANDROID_HOME/platforms/android-35/android.jar"
           test -f "$ANDROID_HOME/build-tools/35.0.0/aapt2"
-      - name: Build debug diagnostic APK
+      - name: Restore stable test signing key
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/jev-signing"
+          base64 --decode .github/signing/jev-douyin-test.jks.b64 > "$RUNNER_TEMP/jev-signing/jev-douyin-test.jks"
+          keytool -list -keystore "$RUNNER_TEMP/jev-signing/jev-douyin-test.jks" -storepass "jev-douyin-test-2026" -alias "jev-douyin-test" >/dev/null
+      - name: Build signed Douyin Lite test APK
+        env:
+          JEV_DOUYIN_TEST_KEYSTORE: ${{ runner.temp }}/jev-signing/jev-douyin-test.jks
+          JEV_DOUYIN_TEST_STOREPASS: jev-douyin-test-2026
+          JEV_DOUYIN_TEST_ALIAS: jev-douyin-test
+          JEV_DOUYIN_TEST_KEYPASS: jev-douyin-test-2026
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace
-      - name: Upload installable diagnostic APK
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.2.0.apk
+      - name: Verify APK signature and version
+        shell: bash
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.2.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.2.0.apk | head -5
+      - name: Upload versioned installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: douyin-lite-ui-diagnostic-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Jev-DouyinLite-v0.2.0
+          path: dist/Jev-DouyinLite-v0.2.0.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14

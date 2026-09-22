@@ -43,7 +43,7 @@ open class ChatCaptureService : AccessibilityService() {
     private val worker = Executors.newFixedThreadPool(2)
 
     /** Adapted chat apps, keyed by package name. */
-    private val adapters = listOf(WeChatAdapter(), QQAdapter(), XAdapter(), FeishuAdapter()).associateBy { it.pkg }
+    private val adapters = listOf(WeChatAdapter(), QQAdapter(), XAdapter(), FeishuAdapter(), DouyinLiteAdapter()).associateBy { it.pkg }
 
     /** Submit to the worker, ignoring rejection after the service is torn down
      *  (a stale overlay callback must never crash the process). */
@@ -349,7 +349,13 @@ open class ChatCaptureService : AccessibilityService() {
                         // itself; one scroll tick in between and we would crop the
                         // rows next to the ones in the picture. Fall back to the
                         // old rects only if the tree gives us nothing now.
-                        val fresh = rootInActiveWindow?.let { collectFeishuBubbleRects(it, resources) }
+                        val fresh = rootInActiveWindow?.let { currentRoot ->
+                            when (pkg) {
+                                "com.ss.android.lark" -> collectFeishuBubbleRects(currentRoot, resources)
+                                "com.ss.android.ugc.aweme.lite" -> collectDouyinLiteBubbleRects(currentRoot, resources)
+                                else -> emptyList()
+                            }
+                        }
                         ocrByRects(res.bitmap, if (fresh.isNullOrEmpty()) rects else fresh, treeTitle, pkg)
                     } else ocrWholeScreen(res.bitmap, treeTitle, pkg, manual)
                 }
@@ -370,7 +376,9 @@ open class ChatCaptureService : AccessibilityService() {
                 ((br.rect.left - ox) * sx).toInt(), ((br.rect.top - oy) * sy).toInt(),
                 ((br.rect.right - ox) * sx).toInt(), ((br.rect.bottom - oy) * sy).toInt())
             ocr.recognize(bmp, region) { lines ->
-                val text = cleanBubbleText(lines.joinToString(" ") { it.text })
+                val rawText = lines.joinToString(" ") { it.text }
+                val text = if (pkg == "com.ss.android.ugc.aweme.lite") cleanDouyinBubbleText(rawText)
+                    else cleanBubbleText(rawText)
                 if (text.isNotEmpty()) out[i] = Msg(br.side, text)
                 remaining--
                 if (remaining == 0) {
@@ -433,6 +441,20 @@ open class ChatCaptureService : AccessibilityService() {
             }
             TAIL_TIME.find(t)?.let { t = t.substring(0, it.range.first).trim(); changed = true }
         }
+        return t
+    }
+
+    /** Douyin voice rows are intentionally ignored until the user expands
+     *  their transcript. A duration-only row (3", 7″, etc.) is not conversation
+     *  content. Timestamp/chrome fragments are stripped as well. */
+    private fun cleanDouyinBubbleText(raw: String): String {
+        var t = raw.trim()
+        if (t.isEmpty()) return ""
+        t = t.replace(Regex("""(^|\\s)[▶▷►]?\\s*\\d{1,3}\\s*["″”'](?=\\s|$)"""), " ").trim()
+        t = t.replace(Regex("""(周[一二三四五六日天]|今天|昨天)\\s*\\d{1,2}[:：]\\d{2}"""), " ").trim()
+        t = t.replace(Regex("""\\s+"""), " ").trim()
+        // OCR sometimes sees only the play glyph/duration of an unexpanded voice.
+        if (t.isEmpty() || Regex("""^[▶▷►•·\\s\\d"″”']+$""").matches(t)) return ""
         return t
     }
 

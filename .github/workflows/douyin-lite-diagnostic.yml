@@ -1,0 +1,71 @@
+name: Build Jev Douyin Lite APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - feature/douyin-lite-ui-diagnostics
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "gradlew"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/douyin-lite-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android platform and build tools
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -1)"
+          test -n "$SDKMANAGER" || { echo "sdkmanager not found"; exit 1; }
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -f "$ANDROID_HOME/build-tools/35.0.0/aapt2"
+      - name: Restore stable test signing key
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/jev-signing"
+          base64 --decode .github/signing/jev-douyin-test.jks.b64 > "$RUNNER_TEMP/jev-signing/jev-douyin-test.jks"
+          keytool -list -keystore "$RUNNER_TEMP/jev-signing/jev-douyin-test.jks" -storepass "jev-douyin-test-2026" -alias "jev-douyin-test" >/dev/null
+      - name: Build signed Douyin Lite test APK
+        env:
+          JEV_DOUYIN_TEST_KEYSTORE: ${{ runner.temp }}/jev-signing/jev-douyin-test.jks
+          JEV_DOUYIN_TEST_STOREPASS: jev-douyin-test-2026
+          JEV_DOUYIN_TEST_ALIAS: jev-douyin-test
+          JEV_DOUYIN_TEST_KEYPASS: jev-douyin-test-2026
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.2.0.apk
+      - name: Verify APK signature and version
+        shell: bash
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.2.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.2.0.apk | head -5
+      - name: Upload versioned installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Jev-DouyinLite-v0.2.0
+          path: dist/Jev-DouyinLite-v0.2.0.apk
+          if-no-files-found: error
+          retention-days: 14

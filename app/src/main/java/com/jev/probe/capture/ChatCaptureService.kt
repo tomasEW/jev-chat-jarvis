@@ -169,7 +169,22 @@ open class ChatCaptureService : AccessibilityService() {
             .registerOnSharedPreferenceChangeListener(preferencesListener)
         overlay = OverlayController(this)
         overlay?.onManualAnalyze = {
-            currentSnapshot?.let { pendingSnapshot = it; runAnalysis() }
+            val root = rootInActiveWindow
+            val pkg = root?.packageName?.toString()
+            if (root != null && pkg == "com.ss.android.ugc.aweme.lite") {
+                val snap = adapters[pkg]?.extract(root, resources)
+                val target = targetFor(root)
+                if (snap != null && target != null) {
+                    observeTarget(target)
+                    overlay?.showLoading()
+                    ocrCapture(snap.title, snap.bubbleRects, pkg, manual = true)
+                } else {
+                    overlay?.showError("无法读取当前抖音会话")
+                }
+            } else {
+                currentSnapshot?.let { pendingSnapshot = it; runAnalysis() }
+                    ?: ocrCaptureManual()
+            }
         }
         // Bubble menu: file the open conversation as a knowledge-base contact.
         // Contacts are never created automatically — this is the one-tap way in.
@@ -490,7 +505,7 @@ open class ChatCaptureService : AccessibilityService() {
                 is ScreenCapture.Result.Ok -> {
                     ocr.scaleX = res.scaleX; ocr.scaleY = res.scaleY
                     ocr.originX = res.originX; ocr.originY = res.originY
-                    if (rects.isNotEmpty() && !manual) {
+                    if (rects.isNotEmpty()) {
                         // Re-measure inside the callback. The rects handed in were
                         // read before the 120ms overlay-hide wait and the shot
                         // itself; one scroll tick in between and we would crop the
@@ -503,7 +518,7 @@ open class ChatCaptureService : AccessibilityService() {
                                 else -> emptyList()
                             }
                         }
-                        ocrByRects(res.bitmap, if (fresh.isNullOrEmpty()) rects else fresh, treeTitle, pkg, token)
+                        ocrByRects(res.bitmap, if (fresh.isNullOrEmpty()) rects else fresh, treeTitle, pkg, manual, token)
                     } else ocrWholeScreen(res.bitmap, treeTitle, pkg, manual, token)
                 }
             }
@@ -511,7 +526,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     /** One OCR pass per bubble rectangle; each rect becomes exactly one message. */
-    private fun ocrByRects(bmp: Bitmap, rects: List<BubbleRect>, title: String?, pkg: String, token: ConversationSession.Token) {
+    private fun ocrByRects(bmp: Bitmap, rects: List<BubbleRect>, title: String?, pkg: String, manual: Boolean, token: ConversationSession.Token) {
         val sx = ocr.scaleX; val sy = ocr.scaleY
         // Screen -> bitmap: drop the window origin first. A window shot does not
         // start at (0,0) in split screen or when it excludes the status bar.
@@ -530,7 +545,7 @@ open class ChatCaptureService : AccessibilityService() {
                 remaining--
                 if (remaining == 0) {
                     runCatching { bmp.recycle() }
-                    finishOcrSnapshot(ChatSnapshot(title, out.filterNotNull()), pkg, manual = false, token = token)
+                    finishOcrSnapshot(ChatSnapshot(title, out.filterNotNull()), pkg, manual = manual, token = token)
                 }
             }
         }

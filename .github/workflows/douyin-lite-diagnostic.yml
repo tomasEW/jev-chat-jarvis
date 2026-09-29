@@ -7,7 +7,7 @@ on:
       - main
   push:
     branches:
-      - upstream-sync-20260929
+      - feature/douyin-lite-ui-diagnostics
     paths:
       - "app/**"
       - "gradle/**"

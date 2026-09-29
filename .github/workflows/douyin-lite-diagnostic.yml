@@ -56,16 +56,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleDebug --stacktrace
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.2.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.3.0.apk
       - name: Verify APK signature and version
         shell: bash
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.2.0.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.2.0.apk | head -5
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.3.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.3.0.apk | head -5
       - name: Upload versioned installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Jev-DouyinLite-v0.2.0
-          path: dist/Jev-DouyinLite-v0.2.0.apk
+          name: Jev-DouyinLite-v0.3.0
+          path: dist/Jev-DouyinLite-v0.3.0.apk
           if-no-files-found: error
           retention-days: 14

@@ -50,7 +50,7 @@ open class ChatCaptureService : AccessibilityService() {
      *  disabled and handled by a short-circuit notice instead of an adapter (see
      *  [maybeCapture] / [onAccessibilityEvent]). [WeChatAdapter] is kept in the
      *  codebase for a possible future restore, just not used here. */
-    private val adapters = listOf(QQAdapter(), XAdapter(), FeishuAdapter()).associateBy { it.pkg }
+    private val adapters = listOf(QQAdapter(), XAdapter(), FeishuAdapter(), DouyinLiteAdapter()).associateBy { it.pkg }
 
     /** Submit to the worker, ignoring rejection after the service is torn down
      *  (a stale overlay callback must never crash the process). */
@@ -496,7 +496,13 @@ open class ChatCaptureService : AccessibilityService() {
                         // itself; one scroll tick in between and we would crop the
                         // rows next to the ones in the picture. Fall back to the
                         // old rects only if the tree gives us nothing now.
-                        val fresh = rootInActiveWindow?.let { collectFeishuBubbleRects(it, resources) }
+                        val fresh = rootInActiveWindow?.let { currentRoot ->
+                            when (pkg) {
+                                "com.ss.android.lark" -> collectFeishuBubbleRects(currentRoot, resources)
+                                "com.ss.android.ugc.aweme.lite" -> collectDouyinLiteBubbleRects(currentRoot, resources)
+                                else -> emptyList()
+                            }
+                        }
                         ocrByRects(res.bitmap, if (fresh.isNullOrEmpty()) rects else fresh, treeTitle, pkg, token)
                     } else ocrWholeScreen(res.bitmap, treeTitle, pkg, manual, token)
                 }
@@ -517,7 +523,9 @@ open class ChatCaptureService : AccessibilityService() {
                 ((br.rect.left - ox) * sx).toInt(), ((br.rect.top - oy) * sy).toInt(),
                 ((br.rect.right - ox) * sx).toInt(), ((br.rect.bottom - oy) * sy).toInt())
             ocr.recognize(bmp, region) { lines ->
-                val text = cleanBubbleText(lines.joinToString(" ") { it.text })
+                val rawText = lines.joinToString(" ") { it.text }
+                val text = if (pkg == "com.ss.android.ugc.aweme.lite") cleanDouyinBubbleText(rawText)
+                    else cleanBubbleText(rawText)
                 if (text.isNotEmpty()) out[i] = Msg(br.side, text)
                 remaining--
                 if (remaining == 0) {
@@ -583,6 +591,17 @@ open class ChatCaptureService : AccessibilityService() {
         return t
     }
 
+    /** Douyin voice rows are ignored until the user manually expands the transcript. */
+    private fun cleanDouyinBubbleText(raw: String): String {
+        var t = raw.trim()
+        if (t.isEmpty()) return ""
+        t = t.replace(Regex("""(^|\s)[▶▷►]?\s*\d{1,3}\s*["″”'](?=\s|$)"""), " ").trim()
+        t = t.replace(Regex("""(周[一二三四五六日天]|今天|昨天)\s*\d{1,2}[:：]\d{2}"""), " ").trim()
+        t = t.replace(Regex("""\s+"""), " ").trim()
+        if (t.isEmpty() || Regex("""^[▶▷►•·\s\d"″”']+$""").matches(t)) return ""
+        return t
+    }
+
     /** Shared tail of both OCR paths: dedupe, then analyze or park the bubble. */
     private fun finishOcrSnapshot(snapshot: ChatSnapshot, pkg: String, manual: Boolean, token: ConversationSession.Token) {
         ocrBusy = false
@@ -627,6 +646,7 @@ open class ChatCaptureService : AccessibilityService() {
         val input = when (token.target.pkg) {
             "com.tencent.mobileqq" -> root.findAccessibilityNodeInfosByViewId("com.tencent.mobileqq:id/input").firstOrNull()
             "com.ss.android.lark" -> root.findAccessibilityNodeInfosByViewId("com.ss.android.lark:id/kb_rich_text_content").firstOrNull()
+            "com.ss.android.ugc.aweme.lite" -> root.findAccessibilityNodeInfosByViewId(DouyinLiteAdapter.INPUT_ID).firstOrNull()
             "com.twitter.android" -> findEditable(root)
             else -> null // Unknown apps support explicit clipboard copy, not unverified writes.
         }

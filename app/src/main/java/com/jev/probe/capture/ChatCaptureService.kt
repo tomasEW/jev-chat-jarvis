@@ -384,6 +384,18 @@ open class ChatCaptureService : AccessibilityService() {
         traceStep("2 前景 $pkg / window=${root.windowId}")
         if (pkg == PKG_WECHAT) { showWeChatDisabled(auto = false); return }
 
+        if (pkg == PKG_DOUYIN) {
+            val title = findTitleInActionBar(root, Int.MAX_VALUE,
+                resources.displayMetrics.widthPixels, resources, 0.12, 0.88)
+            if (isDouyinGroupTitle(title)) {
+                // Group-chat suggestions are intentionally disabled. Do not leave
+                // a Jev control floating over a screen we will never analyze.
+                leaveConversation()
+                overlay?.hide()
+                return
+            }
+        }
+
         // Douyin's accessibility hierarchy can get stuck in a partial cached
         // state: the same visible chat alternates between Adapter=null, rows=0,
         // and a populated message list until the Activity is re-entered. A manual
@@ -455,13 +467,8 @@ open class ChatCaptureService : AccessibilityService() {
             val snap = adapters[PKG_DOUYIN]?.extract(root, resources)
             val usable = snap != null && (snap.messages.isNotEmpty() || snap.bubbleRects.isNotEmpty())
             if (!usable) {
-                val state = if (snap == null) {
-                    val title = findTitleInActionBar(root, Int.MAX_VALUE,
-                        resources.displayMetrics.widthPixels, resources, 0.12, 0.88)
-                    val group = isDouyinGroupTitle(title)
-                    val groupRows = if (group) collectDouyinGroupBubbleRects(root, resources).size else 0
-                    "Adapter失败 group=$group avatarRows=$groupRows"
-                } else "rows=0 title=${!snap.title.isNullOrBlank()} group=${isDouyinGroupTitle(snap.title)}"
+                val state = if (snap == null) "Adapter失败"
+                    else "rows=0 title=${!snap.title.isNullOrBlank()}"
                 traceStep("3R ${state} / attempt=${attempt + 1}")
                 if (attempt < 6) {
                     overlay?.showProgress("抖音聊天节点暂时不完整，正在自动重试 ${attempt + 2}/7…")
@@ -575,10 +582,15 @@ open class ChatCaptureService : AccessibilityService() {
         val rawSnapshot = adapter.extract(root, resources)
         val target = rawSnapshot?.let { targetFor(root, it) }
         if (rawSnapshot == null || target == null) {
-            // Douyin can temporarily expose an incomplete tree while our panel
-            // is hiding/restoring. Keep the live request and its progress intact.
+            // Douyin is deliberately conservative: outside a positively confirmed
+            // one-to-one DM (video feed, comments, profile, group chat, etc.) Jev
+            // must disappear instead of parking an idle bubble. This restores the
+            // original "only visible in a conversation" behavior and prevents
+            // false OCR/detection on videos.
             if ((ocrBusy || analyzing) && session.sameWindow(pkg, root.windowId)) return
-            leaveConversation(); overlay?.showIdle(null); return
+            leaveConversation()
+            if (pkg == PKG_DOUYIN) overlay?.hide() else overlay?.showIdle(null)
+            return
         }
         observeTarget(target)
         // Overlay/OCR events in this same chat must not replace the progress panel.

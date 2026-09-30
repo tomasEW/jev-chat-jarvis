@@ -61,7 +61,8 @@ internal fun findTitleInActionBar(
     while (stack.isNotEmpty() && guard < 5000) {
         guard++
         val node = stack.removeLast()
-        val text = node.text?.toString()
+        val text = node.text?.toString()?.takeIf { it.isNotBlank() }
+            ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
         if (!text.isNullOrBlank() && text.length <= 24 && !looksLikeTimestamp(text)) {
             val b = Rect(); node.getBoundsInScreen(b)
             if (b.bottom in 1 until actionBarMax && b.centerX() in minCenterX..maxCenterX) {
@@ -573,24 +574,41 @@ internal fun collectDouyinLiteBubbleRects(
     val width = res.displayMetrics.widthPixels
     val height = res.displayMetrics.heightPixels
     var recycler: AccessibilityNodeInfo? = null
+    var input: AccessibilityNodeInfo? = null
     val candidates = ArrayList<AccessibilityNodeInfo>()
+    val inputs = ArrayList<AccessibilityNodeInfo>()
     val stack = ArrayDeque<AccessibilityNodeInfo>()
     stack.addLast(root)
     var guard = 0
     while (stack.isNotEmpty() && guard < 8000) {
         guard++
         val n = stack.removeLast()
-        if (n.viewIdResourceName == DouyinLiteAdapter.RECYCLER_ID) recycler = n
+        val id = n.viewIdResourceName
+        if (id == DouyinLiteAdapter.RECYCLER_ID) recycler = n
+        if (id == DouyinLiteAdapter.INPUT_ID) input = n
         val b = Rect(); n.getBoundsInScreen(b)
         val cls = n.className?.toString().orEmpty()
+        if (n.isEditable && n.isVisibleToUser && b.centerY() > height * 0.68) inputs.add(n)
         if ((cls.contains("RecyclerView") || n.isScrollable) && n.childCount >= 2 &&
             b.width() > width * 0.70 && b.height() > height * 0.30
         ) candidates.add(n)
         for (i in n.childCount - 1 downTo 0) n.getChild(i)?.let { stack.addLast(it) }
     }
-    val list = recycler ?: candidates.maxByOrNull { n ->
-        val b = Rect(); n.getBoundsInScreen(b); b.height()
-    } ?: return emptyList()
+
+    // Douyin Lite changes obfuscated resource IDs between releases. An old j4y
+    // node can still exist but no longer be the message list (seen as childCount=1).
+    // Pick the large scrollable list above the composer exactly as extract() does.
+    input = input ?: inputs.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+    val ib = Rect(); input?.getBoundsInScreen(ib)
+    val exact = recycler?.takeIf { n ->
+        val b = Rect(); n.getBoundsInScreen(b)
+        n.childCount >= 2 && input != null && b.top < ib.top && b.height() > height * 0.30
+    }
+    val list = exact ?: candidates.filter { n ->
+        val b = Rect(); n.getBoundsInScreen(b)
+        input != null && b.top < ib.top && b.bottom <= ib.top + (height * 0.08).toInt()
+    }.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.height() }
+        ?: return emptyList()
     val out = ArrayList<BubbleRect>()
     for (i in 0 until list.childCount) {
         val row = list.getChild(i) ?: continue
@@ -615,6 +633,9 @@ internal fun collectDouyinLiteBubbleRects(
             }
             for (j in n.childCount - 1 downTo 0) n.getChild(j)?.let { q.addLast(it) }
         }
+        // Never guess sender side. Rows without a clear avatar-side signal
+        // (or with an ambiguous tie) are excluded from OCR/AI input.
+        if (leftScore == rightScore) continue
         val side = if (rightScore > leftScore) "me" else "other"
         out.add(BubbleRect(Rect(rb), side))
     }

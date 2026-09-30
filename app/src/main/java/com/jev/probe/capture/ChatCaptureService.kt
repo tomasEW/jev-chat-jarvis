@@ -152,9 +152,21 @@ open class ChatCaptureService : AccessibilityService() {
         var messagesSignature: String? = null
         val title = if (adapter != null) {
             val snapshot = extracted ?: adapter.extract(root, resources) ?: return null
-            messagesSignature = snapshot.takeIf { it.messages.isNotEmpty() }?.signature()
-            // A loading/unknown title cannot prove which conversation is open.
-            snapshot.title?.takeUnless { isTransientTitle(it) } ?: return null
+            messagesSignature = when {
+                snapshot.messages.isNotEmpty() -> snapshot.signature()
+                pkg == "com.ss.android.ugc.aweme.lite" && snapshot.bubbleRects.isNotEmpty() ->
+                    ocrSignature(pkg, snapshot.title, snapshot.bubbleRects)
+                else -> null
+            }
+            // Douyin Lite sometimes paints the visible DM title without exposing
+            // accessibility text. For a manual analysis with no whitelist, keep a
+            // window+row-geometry target instead of blocking before screenshot.
+            // The rect signature still invalidates the request if the visible chat
+            // layout changes while OCR/analysis is running.
+            snapshot.title?.takeUnless { isTransientTitle(it) }
+                ?: if (pkg == "com.ss.android.ugc.aweme.lite" && snapshot.bubbleRects.isNotEmpty())
+                    "抖音私信#${root.windowId}"
+                else return null
         } else {
             findTitleInActionBar(root, Int.MAX_VALUE, resources.displayMetrics.widthPixels,
                 resources, 0.15, 0.85)

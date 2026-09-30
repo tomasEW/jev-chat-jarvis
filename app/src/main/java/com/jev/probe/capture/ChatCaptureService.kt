@@ -469,8 +469,9 @@ open class ChatCaptureService : AccessibilityService() {
                 return@postDelayed
             }
 
-            traceStep("3 Adapter OK：rows=${snap!!.bubbleRects.size} msgs=${snap.messages.size} title=${!snap.title.isNullOrBlank()} retry=${attempt}")
-            continueManualSnapshot(root, PKG_DOUYIN, snap)
+            val ready = snap ?: return@postDelayed
+            traceStep("3 Adapter OK：rows=${ready.bubbleRects.size} msgs=${ready.messages.size} title=${!ready.title.isNullOrBlank()} retry=${attempt}")
+            continueManualSnapshot(root, PKG_DOUYIN, ready)
         }, 90)
     }
 

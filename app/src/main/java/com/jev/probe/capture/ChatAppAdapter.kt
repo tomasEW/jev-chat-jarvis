@@ -520,7 +520,7 @@ class XAdapter : ChatAppAdapter {
  * expanded "显示文字"; an unexpanded voice row OCRs to duration/chrome only and
  * is discarded by the Douyin OCR cleaner.
  */
-private val DOUYIN_GROUP_COUNT_SUFFIX = Regex("""[（(]\\d{1,6}[）)]\\s*$""")
+private val DOUYIN_GROUP_COUNT_SUFFIX = Regex("""[（(]\d{1,6}[）)]\s*$""")
 
 internal fun isDouyinGroupTitle(title: String?): Boolean =
     !title.isNullOrBlank() && DOUYIN_GROUP_COUNT_SUFFIX.containsMatchIn(title.trim())

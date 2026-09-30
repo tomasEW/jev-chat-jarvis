@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -119,6 +120,38 @@ open class ChatCaptureService : AccessibilityService() {
             if (root.packageName?.toString() == pkg) return root
         }
         return null
+    }
+
+    /**
+     * Reacquire roots after a manual cache refresh. Android 13+ can prefetch
+     * descendants breadth-first and make the fetch uninterruptible; this avoids
+     * immediately walking the same half-populated hierarchy that produced
+     * Adapter failure / rows=0.
+     */
+    private fun freshForegroundRoot(): AccessibilityNodeInfo? {
+        if (Build.VERSION.SDK_INT < 33) {
+            return foregroundRoot()?.also { runCatching { it.refresh() } }
+        }
+        val strategy = AccessibilityNodeInfo.FLAG_PREFETCH_DESCENDANTS_BREADTH_FIRST or
+            AccessibilityNodeInfo.FLAG_PREFETCH_UNINTERRUPTIBLE
+        val active = runCatching { getRootInActiveWindow(strategy) }.getOrNull()
+        val roots = windows.mapNotNull { w ->
+            val root = runCatching { w.getRoot(strategy) }.getOrNull() ?: return@mapNotNull null
+            val pkg = root.packageName?.toString() ?: return@mapNotNull null
+            ForegroundWindowSelector.Window(w.id, pkg,
+                w.type == AccessibilityWindowInfo.TYPE_APPLICATION,
+                w.isActive, w.isFocused, w.layer) to root
+        }
+        val activeWindow = active?.let { root ->
+            val w = root.window ?: return@let null
+            ForegroundWindowSelector.Window(w.id, root.packageName?.toString().orEmpty(),
+                w.type == AccessibilityWindowInfo.TYPE_APPLICATION,
+                w.isActive, w.isFocused, w.layer)
+        }
+        val selected = ForegroundWindowSelector.select(activeWindow, roots.map { it.first }, packageName)
+            ?: return null
+        return if (selected.id == active?.windowId) active
+            else roots.firstOrNull { it.first.id == selected.id }?.second
     }
 
     /** Resolve the visible application, ignoring our overlay and the keyboard. */
@@ -329,6 +362,8 @@ open class ChatCaptureService : AccessibilityService() {
         Log.i(TAG, "capture service connected")
     }
 
+    private var manualAnalyzeGeneration = 0
+
     private fun analyzeCurrentApp() {
         // The visible button/re-analyze control clears TRACE before dispatching,
         // so keep step 0 on screen instead of erasing the proof that touch arrived.
@@ -339,6 +374,8 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showProgress("正在截屏辨识，完成后开始分析…"); return
         }
         if (analyzing) { overlay?.showProgress("分析中…"); return }
+
+        val generation = ++manualAnalyzeGeneration
         overlay?.showProgress("正在读取当前 App…")
         val root = foregroundRoot() ?: run {
             overlay?.showError("找不到当前 App 窗口，请回到聊天页面再试"); return
@@ -346,6 +383,27 @@ open class ChatCaptureService : AccessibilityService() {
         val pkg = root.packageName?.toString().orEmpty()
         traceStep("2 前景 $pkg / window=${root.windowId}")
         if (pkg == PKG_WECHAT) { showWeChatDisabled(auto = false); return }
+
+        // Douyin's accessibility hierarchy can get stuck in a partial cached
+        // state: the same visible chat alternates between Adapter=null, rows=0,
+        // and a populated message list until the Activity is re-entered. A manual
+        // tap must recover in place instead of making the user leave the chat.
+        if (pkg == PKG_DOUYIN) {
+            overlay?.showProgress("正在重新读取抖音聊天…")
+            // The callback is dispatched on ACTION_DOWN. Wait for the finger-up
+            // before starting cache refresh/retries so the tap that launched this
+            // analysis has completely finished.
+            main.postDelayed({
+                analyzeDouyinManualAttempt(generation, root.windowId, attempt = 0)
+            }, 120)
+            return
+        }
+
+        analyzeAdaptedRoot(root, pkg)
+    }
+
+    /** Normal one-shot manual path for adapted apps other than Douyin. */
+    private fun analyzeAdaptedRoot(root: AccessibilityNodeInfo, pkg: String) {
         val adapter = adapters[pkg]
         if (adapter == null) {
             // Unadapted apps such as LINE keep their original explicit OCR path.
@@ -357,6 +415,67 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showError("已侦测到 $pkg，但找不到聊天列表或输入框"); return
         }
         traceStep("3 Adapter OK：rows=${snap.bubbleRects.size} msgs=${snap.messages.size} title=${!snap.title.isNullOrBlank()}")
+        continueManualSnapshot(root, pkg, snap)
+    }
+
+    /**
+     * Douyin-only recovery path for an incomplete/stale accessibility hierarchy.
+     *
+     * Android 13+ exposes an AccessibilityService cache clear API and root
+     * prefetching. Clear the cache, reacquire a new root, and retry a few times
+     * instead of reusing the same dead node tree forever. No screenshot/OCR is
+     * attempted until at least one row has a reliable sender side.
+     */
+    private fun analyzeDouyinManualAttempt(
+        generation: Int,
+        expectedWindowId: Int,
+        attempt: Int
+    ) {
+        if (generation != manualAnalyzeGeneration || destroyed || !prefs.enabled) return
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            val cleared = runCatching { clearCache() }.getOrDefault(false)
+            traceStep("3R 刷新节点 ${attempt + 1}/7 cache=${if (cleared) "OK" else "NO"}")
+        } else {
+            traceStep("3R 刷新节点 ${attempt + 1}/7")
+        }
+
+        // Cache invalidation is asynchronous from the app's point of view. Give
+        // Douyin a short beat, then request a newly-prefetched hierarchy.
+        main.postDelayed({
+            if (generation != manualAnalyzeGeneration || destroyed || !prefs.enabled) return@postDelayed
+            val root = freshForegroundRoot()
+            if (root == null || root.packageName?.toString() != PKG_DOUYIN ||
+                root.windowId != expectedWindowId
+            ) {
+                overlay?.showError("分析期间已离开原来的抖音会话，请重新分析")
+                return@postDelayed
+            }
+
+            val snap = adapters[PKG_DOUYIN]?.extract(root, resources)
+            val usable = snap != null && (snap.messages.isNotEmpty() || snap.bubbleRects.isNotEmpty())
+            if (!usable) {
+                val state = if (snap == null) "Adapter失败"
+                    else "rows=0 title=${!snap.title.isNullOrBlank()}"
+                traceStep("3R ${state} / attempt=${attempt + 1}")
+                if (attempt < 6) {
+                    overlay?.showProgress("抖音聊天节点暂时不完整，正在自动重试 ${attempt + 2}/7…")
+                    main.postDelayed({
+                        analyzeDouyinManualAttempt(generation, expectedWindowId, attempt + 1)
+                    }, 180)
+                } else {
+                    overlay?.showError("抖音聊天节点持续不完整；已自动刷新并重试 7 次，仍无法取得可辨识的消息列")
+                }
+                return@postDelayed
+            }
+
+            traceStep("3 Adapter OK：rows=${snap!!.bubbleRects.size} msgs=${snap.messages.size} title=${!snap.title.isNullOrBlank()} retry=${attempt}")
+            continueManualSnapshot(root, PKG_DOUYIN, snap)
+        }, 90)
+    }
+
+    /** Continue a manual analysis after an adapter produced a usable snapshot. */
+    private fun continueManualSnapshot(root: AccessibilityNodeInfo, pkg: String, snap: ChatSnapshot) {
         val target = targetFor(root, snap) ?: run {
             overlay?.showError("已侦测到 $pkg，但无法确认当前会话标题"); return
         }
@@ -369,7 +488,8 @@ open class ChatCaptureService : AccessibilityService() {
             currentSnapshot = snap
             pendingSnapshot = snap
             runAnalysis(manual = true)
-        } else if (pkg == DouyinLiteAdapter().pkg && snap.bubbleRects.isEmpty()) {
+        } else if (pkg == PKG_DOUYIN && snap.bubbleRects.isEmpty()) {
+            // Defensive only: Douyin retries above should never pass an empty set.
             overlay?.showError("已侦测到抖音聊天，但没有找到可辨识的消息列")
         } else {
             traceStep("5 准备截屏 / rows=${snap.bubbleRects.size}")
@@ -990,6 +1110,7 @@ open class ChatCaptureService : AccessibilityService() {
          *  trips WeChat's anti-screenshot risk control, so it is fully disabled:
          *  no adapter, no capture, only a one-time "not supported" notice. */
         private const val PKG_WECHAT = "com.tencent.mm"
+        private const val PKG_DOUYIN = "com.ss.android.ugc.aweme.lite"
 
         /** Shown once when the foreground is WeChat. Plain words, full-width
          *  punctuation; steers the user to a still-supported app. */

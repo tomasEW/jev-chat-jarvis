@@ -102,9 +102,22 @@ open class ChatCaptureService : AccessibilityService() {
         currentSnapshot = null
     }
 
+    /** Prefer the underlying chat window even while Jev's overlay is being tapped. */
+    private fun rootForPackage(pkg: String): AccessibilityNodeInfo? {
+        rootInActiveWindow?.let { root ->
+            if (root.packageName?.toString() == pkg) return root
+        }
+        for (window in windows) {
+            val root = runCatching { window.root }.getOrNull() ?: continue
+            if (root.packageName?.toString() == pkg) return root
+        }
+        return null
+    }
+
     /** Read the live target, never the previous chat's cached/stabilized title. */
     private fun targetFor(root: AccessibilityNodeInfo): ConversationSession.Target? {
-        val pkg = root.packageName?.toString() ?: return null
+        val pkg = root.packageName?.toString()
+        if (pkg != null && pkg in adapters) lastAdaptedPkg = pkg ?: return null
         if (pkg == PKG_WECHAT || pkg == packageName || pkg == "com.android.systemui" ||
             pkg.contains("launcher", true) || pkg == "com.miui.home") return null
         val adapter = adapters[pkg]
@@ -123,7 +136,7 @@ open class ChatCaptureService : AccessibilityService() {
 
     private fun isCurrent(token: ConversationSession.Token): Boolean {
         if (destroyed || !prefs.enabled || !session.accepts(token)) return false
-        val live = rootInActiveWindow?.let { targetFor(it) }
+        val live = rootForPackage(token.target.pkg)?.let { targetFor(it) }
         if (live != token.target || !prefs.isAllowed(currentSnapshot?.title ?: live.title)) {
             leaveConversation()
             overlay?.hide()
@@ -141,6 +154,7 @@ open class ChatCaptureService : AccessibilityService() {
     private var pendingSnapshot: ChatSnapshot? = null
     @Volatile private var currentSnapshot: ChatSnapshot? = null
     private var foregroundPkg: String? = null
+    private var lastAdaptedPkg: String? = null
 
     // ---- OCR path (B stage). Everything here runs on the main thread: the
     // screenshot callback and the ML Kit callback are both posted back to it.
@@ -169,17 +183,21 @@ open class ChatCaptureService : AccessibilityService() {
             .registerOnSharedPreferenceChangeListener(preferencesListener)
         overlay = OverlayController(this)
         overlay?.onManualAnalyze = {
-            val root = rootInActiveWindow
-            val pkg = root?.packageName?.toString()
-            if (root != null && pkg == "com.ss.android.ugc.aweme.lite") {
-                val snap = adapters[pkg]?.extract(root, resources)
-                val target = targetFor(root)
-                if (snap != null && target != null) {
-                    observeTarget(target)
-                    overlay?.showLoading()
-                    ocrCapture(snap.title, snap.bubbleRects, pkg, manual = true)
-                } else {
-                    overlay?.showError("无法读取当前抖音会话")
+            val wantedPkg = session.target?.pkg ?: lastAdaptedPkg ?: rootInActiveWindow?.packageName?.toString()
+            if (wantedPkg == "com.ss.android.ugc.aweme.lite") {
+                val root = rootForPackage(wantedPkg)
+                val snap = root?.let { adapters[wantedPkg]?.extract(it, resources) }
+                val target = root?.let { targetFor(it) }
+                when {
+                    root == null -> overlay?.showError("找不到抖音聊天窗口，请回到私信页面再试")
+                    snap == null -> overlay?.showError("已侦测到抖音，但找不到聊天列表或输入框")
+                    target == null -> overlay?.showError("已侦测到抖音，但无法确认当前会话标题")
+                    snap.bubbleRects.isEmpty() -> overlay?.showError("已侦测到抖音聊天，但没有找到可辨识的消息列")
+                    else -> {
+                        observeTarget(target)
+                        overlay?.showLoading()
+                        ocrCapture(snap.title, snap.bubbleRects, wantedPkg, manual = true)
+                    }
                 }
             } else {
                 currentSnapshot?.let { pendingSnapshot = it; runAnalysis() }
@@ -511,7 +529,7 @@ open class ChatCaptureService : AccessibilityService() {
                         // itself; one scroll tick in between and we would crop the
                         // rows next to the ones in the picture. Fall back to the
                         // old rects only if the tree gives us nothing now.
-                        val fresh = rootInActiveWindow?.let { currentRoot ->
+                        val fresh = rootForPackage(pkg)?.let { currentRoot ->
                             when (pkg) {
                                 "com.ss.android.lark" -> collectFeishuBubbleRects(currentRoot, resources)
                                 "com.ss.android.ugc.aweme.lite" -> collectDouyinLiteBubbleRects(currentRoot, resources)
@@ -656,7 +674,7 @@ open class ChatCaptureService : AccessibilityService() {
     /** Resolve only the originating chat's input, never an arbitrary foreground editor. */
     private fun inputFor(token: ConversationSession.Token): AccessibilityNodeInfo? {
         if (!isCurrent(token)) return null
-        val root = rootInActiveWindow ?: return null
+        val root = rootForPackage(token.target.pkg) ?: return null
         if (targetFor(root) != token.target) return null
         val input = when (token.target.pkg) {
             "com.tencent.mobileqq" -> root.findAccessibilityNodeInfosByViewId("com.tencent.mobileqq:id/input").firstOrNull()

@@ -176,7 +176,7 @@ class OverlayController(private val ctx: Context) {
         p.addView(header)
 
         val trace = TextView(ctx).apply {
-            text = "TRACE v0.3.8 [$instanceId]：待命"
+            text = "TRACE v0.3.11 [$instanceId]：待命"
             setTextColor(Color.parseColor("#6B7280"))
             textSize = 10f
             setPadding(0, dp(4), 0, dp(4))

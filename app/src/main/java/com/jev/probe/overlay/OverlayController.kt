@@ -202,11 +202,7 @@ class OverlayController(private val ctx: Context) {
     private fun iconBtn(glyph: String, onClick: () -> Unit) = TextView(ctx).apply {
         text = glyph; setTextColor(Color.parseColor("#6B7280")); textSize = 16f
         setPadding(dp(10), dp(2), dp(6), dp(2))
-        isClickable = true
-        setOnClickListener {
-            if (label == "分析当前对话") trace("0 分析按钮 click 已送出")
-            onClick()
-        }
+        setOnClickListener { onClick() }
     }
 
     // --------------------------------------------------------------- gestures
@@ -355,7 +351,11 @@ class OverlayController(private val ctx: Context) {
         setPadding(dp(12), dp(11), dp(12), dp(11))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        setOnClickListener { onClick() }
+        isClickable = true
+        setOnClickListener {
+            if (label == "分析当前对话") trace("0 分析按钮 click 已送出")
+            onClick()
+        }
     }
 
     fun showProgress(message: String) {

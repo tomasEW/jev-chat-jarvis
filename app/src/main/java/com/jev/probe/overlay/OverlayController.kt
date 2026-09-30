@@ -319,7 +319,7 @@ class OverlayController(private val ctx: Context) {
         // contentBox with zero children while lastJudgment still points at a
         // stale conversation) — either way an empty panel must never stay
         // literally blank.
-        if (lastJudgment == null || contentBox?.childCount == 0) {
+        if (contentBox?.childCount == 0) {
             setContent(listOf(bigButton("分析当前对话") { onManualAnalyze?.invoke() }))
         }
     }
@@ -351,7 +351,11 @@ class OverlayController(private val ctx: Context) {
         setPadding(dp(12), dp(11), dp(12), dp(11))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        setOnClickListener { onClick() }
+        isClickable = true
+        setOnClickListener {
+            if (label == "分析当前对话") trace("0 分析按钮 click 已送出")
+            onClick()
+        }
     }
 
     fun showProgress(message: String) {

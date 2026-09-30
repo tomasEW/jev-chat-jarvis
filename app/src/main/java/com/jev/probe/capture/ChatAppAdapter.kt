@@ -520,12 +520,25 @@ class XAdapter : ChatAppAdapter {
  * expanded "显示文字"; an unexpanded voice row OCRs to duration/chrome only and
  * is discarded by the Douyin OCR cleaner.
  */
+private val DOUYIN_GROUP_COUNT_SUFFIX = Regex("""[（(]\\d{1,6}[）)]\\s*$""")
+
+internal fun isDouyinGroupTitle(title: String?): Boolean =
+    !title.isNullOrBlank() && DOUYIN_GROUP_COUNT_SUFFIX.containsMatchIn(title.trim())
+
 class DouyinLiteAdapter : ChatAppAdapter {
     override val pkg = "com.ss.android.ugc.aweme.lite"
 
     override fun extract(root: AccessibilityNodeInfo, res: Resources): ChatSnapshot? {
         val width = res.displayMetrics.widthPixels
         val height = res.displayMetrics.heightPixels
+
+        // Read the header before applying the DM-specific composer/list rules.
+        // Douyin group chats use a different hierarchy from one-to-one DMs; a
+        // title such as "龙门三群 (971)" is the stable signal that we should use
+        // the group avatar geometry fallback below.
+        val headerTitle = findTitleInActionBar(root, Int.MAX_VALUE, width, res, 0.12, 0.88)
+        val groupChat = isDouyinGroupTitle(headerTitle)
+
         var recycler: AccessibilityNodeInfo? = null
         var input: AccessibilityNodeInfo? = null
         val lists = ArrayList<AccessibilityNodeInfo>()
@@ -551,19 +564,114 @@ class DouyinLiteAdapter : ChatAppAdapter {
         recycler = recycler ?: lists.filter { n ->
             val b = Rect(); n.getBoundsInScreen(b); input != null && b.top < ib.top
         }.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.height() }
-        if (input == null || recycler == null) return null
 
-        val rects = collectDouyinLiteBubbleRects(root, res)
-        val firstTop = rects.minOfOrNull { it.rect.top } ?: Int.MAX_VALUE
-        val title = findTitleInActionBar(root, firstTop, width, res, 0.12, 0.88)
-        return ChatSnapshot(title, emptyList(), rects,
-            note = "抖音极速版：语音需先手动展开“显示文字”后才会纳入分析")
+        // One-to-one DM path: preserve the existing strict composer + list proof.
+        if (input != null && recycler != null) {
+            var rects = collectDouyinLiteBubbleRects(root, res)
+            if (rects.isEmpty() && groupChat) {
+                rects = collectDouyinGroupBubbleRects(root, res)
+            }
+            val firstTop = rects.minOfOrNull { it.rect.top } ?: Int.MAX_VALUE
+            val title = findTitleInActionBar(root, firstTop, width, res, 0.12, 0.88) ?: headerTitle
+            return ChatSnapshot(title, emptyList(), rects,
+                note = if (groupChat)
+                    "抖音极速版群聊：按头像左右位置区分自己与其他成员；语音需先手动展开“显示文字”"
+                else
+                    "抖音极速版：语音需先手动展开“显示文字”后才会纳入分析")
+        }
+
+        // Group-chat path. The group screen does not consistently expose the same
+        // EditText/RecyclerView nodes as a DM. Do NOT fall back to flat OCR (that
+        // would lose sender side). Instead, use only outer-column avatar geometry
+        // from Accessibility to define OCR rows. If no reliable avatar is exposed,
+        // return null and let TRACE say so rather than guessing.
+        if (groupChat) {
+            val rects = collectDouyinGroupBubbleRects(root, res)
+            if (rects.isNotEmpty()) {
+                return ChatSnapshot(headerTitle, emptyList(), rects,
+                    note = "抖音极速版群聊：按头像左右位置区分自己与其他成员；语音需先手动展开“显示文字”")
+            }
+        }
+        return null
     }
 
     companion object {
         const val RECYCLER_ID = "com.ss.android.ugc.aweme.lite:id/j4y"
         const val INPUT_ID = "com.ss.android.ugc.aweme.lite:id/msg_et"
     }
+}
+
+/**
+ * Douyin group chats use a different hierarchy from one-to-one DMs and may not
+ * expose the DM composer/list IDs at all. Sender identity still comes only from
+ * Accessibility geometry: left avatar = another member, right avatar = me.
+ *
+ * We intentionally do not use OCR to decide sender side. Central images/stickers
+ * are ignored because only small square nodes in the outer avatar columns can
+ * seed a row. Nested nodes around the same avatar are de-duplicated.
+ */
+internal fun collectDouyinGroupBubbleRects(
+    root: AccessibilityNodeInfo,
+    res: Resources
+): List<BubbleRect> {
+    val width = res.displayMetrics.widthPixels
+    val height = res.displayMetrics.heightPixels
+    val topLimit = (height * 0.13).toInt()
+    val bottomLimit = (height * 0.86).toInt()
+    val minSize = (width * 0.035).toInt().coerceAtLeast(32)
+    val maxSize = (width * 0.18).toInt().coerceAtMost(220)
+    val avatars = ArrayList<Pair<Rect, String>>()
+
+    val stack = ArrayDeque<AccessibilityNodeInfo>()
+    stack.addLast(root)
+    var guard = 0
+    while (stack.isNotEmpty() && guard < 9000) {
+        guard++
+        val n = stack.removeLast()
+        val b = Rect(); n.getBoundsInScreen(b)
+        val w = b.width(); val h = b.height()
+        if (n.isVisibleToUser && b.top >= topLimit && b.bottom <= bottomLimit &&
+            w in minSize..maxSize && h in minSize..maxSize &&
+            kotlin.math.abs(w - h) <= (maxOf(w, h) * 0.32).toInt()
+        ) {
+            val cx = b.centerX()
+            val side = when {
+                cx < width * 0.17 -> "other"
+                cx > width * 0.83 -> "me"
+                else -> null
+            }
+            if (side != null) {
+                val duplicate = avatars.any { (old, oldSide) ->
+                    oldSide == side &&
+                        kotlin.math.abs(old.centerX() - b.centerX()) < minSize &&
+                        kotlin.math.abs(old.centerY() - b.centerY()) < minSize
+                }
+                if (!duplicate) avatars.add(Rect(b) to side)
+            }
+        }
+        for (i in n.childCount - 1 downTo 0) n.getChild(i)?.let { stack.addLast(it) }
+    }
+
+    if (avatars.isEmpty()) return emptyList()
+    avatars.sortBy { it.first.top }
+
+    val out = ArrayList<BubbleRect>()
+    for (i in avatars.indices) {
+        val (avatar, side) = avatars[i]
+        // A row begins slightly above the avatar so OCR also sees a group member
+        // name. It ends before the next avatar, capped to avoid swallowing a very
+        // tall unrelated region when only one avatar is currently exposed.
+        val nextTop = avatars.drop(i + 1)
+            .firstOrNull { it.first.top > avatar.top + minSize }?.first?.top
+            ?: bottomLimit
+        val top = (avatar.top - (height * 0.012).toInt()).coerceAtLeast(topLimit)
+        val naturalBottom = maxOf(avatar.bottom + (height * 0.08).toInt(), top + minSize * 2)
+        val bottom = minOf(nextTop - 2, naturalBottom, bottomLimit)
+        if (bottom > top + minSize) {
+            out.add(BubbleRect(Rect(0, top, width, bottom), side))
+        }
+    }
+    return out
 }
 
 /** Visible Douyin DM rows with sender side inferred from the avatar column. */

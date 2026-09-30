@@ -55,6 +55,10 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Submit to the worker, ignoring rejection after the service is torn down
      *  (a stale overlay callback must never crash the process). */
+    private fun traceStep(message: String) {
+        overlay?.trace(message)
+    }
+
     private fun submit(task: () -> Unit) {
         try { worker.execute(task) } catch (_: RejectedExecutionException) { }
     }
@@ -171,6 +175,7 @@ open class ChatCaptureService : AccessibilityService() {
         checkCurrent(token) == ConversationSession.Check.CURRENT
 
     private fun abortRequest(token: ConversationSession.Token, stage: String, check: ConversationSession.Check) {
+        if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("中止 $stage：$check")
         if (!session.accepts(token) || destroyed || !prefs.enabled) return
         val root = foregroundRoot()
         val sameApp = root?.packageName?.toString() == token.target.pkg
@@ -194,6 +199,7 @@ open class ChatCaptureService : AccessibilityService() {
         onCurrent: () -> Unit
     ) {
         val check = checkCurrent(token)
+        if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("$stage：$check / retry=$retries")
         when {
             check == ConversationSession.Check.CURRENT -> onCurrent()
             check == ConversationSession.Check.UNAVAILABLE && retries > 0 ->
@@ -296,6 +302,8 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun analyzeCurrentApp() {
+        overlay?.clearTrace()
+        traceStep("1 按下分析")
         if (!prefs.enabled) { overlay?.showError("Jev 已暂停，请先开启"); return }
         if (ocrBusy) {
             manualOcrRequested = true
@@ -307,6 +315,7 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showError("找不到当前 App 窗口，请回到聊天页面再试"); return
         }
         val pkg = root.packageName?.toString().orEmpty()
+        traceStep("2 前景 $pkg / window=${root.windowId}")
         if (pkg == PKG_WECHAT) { showWeChatDisabled(auto = false); return }
         val adapter = adapters[pkg]
         if (adapter == null) {
@@ -315,8 +324,10 @@ open class ChatCaptureService : AccessibilityService() {
             return
         }
         val snap = adapter.extract(root, resources) ?: run {
+            traceStep("3 Adapter 失败")
             overlay?.showError("已侦测到 $pkg，但找不到聊天列表或输入框"); return
         }
+        traceStep("3 Adapter OK：rows=${snap.bubbleRects.size} msgs=${snap.messages.size} title=${!snap.title.isNullOrBlank()}")
         val target = targetFor(root, snap) ?: run {
             overlay?.showError("已侦测到 $pkg，但无法确认当前会话标题"); return
         }
@@ -324,6 +335,7 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showError("当前会话不在白名单内，请检查设置"); return
         }
         observeTarget(target)
+        traceStep("4 会话确认 OK / window=${target.windowId}")
         if (snap.messages.isNotEmpty()) {
             currentSnapshot = snap
             pendingSnapshot = snap
@@ -331,6 +343,7 @@ open class ChatCaptureService : AccessibilityService() {
         } else if (pkg == DouyinLiteAdapter().pkg && snap.bubbleRects.isEmpty()) {
             overlay?.showError("已侦测到抖音聊天，但没有找到可辨识的消息列")
         } else {
+            traceStep("5 准备截屏 / rows=${snap.bubbleRects.size}")
             overlay?.showProgress("正在截屏辨识…")
             ocrCapture(snap.title, snap.bubbleRects, pkg, manual = true)
         }
@@ -506,6 +519,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun runAnalysis(manual: Boolean = false) {
+        if (session.target?.pkg == "com.ss.android.ugc.aweme.lite") traceStep("14 runAnalysis")
         val snapshot = pendingSnapshot ?: run {
             if (manual) overlay?.showError("没有可分析的消息，请重新读取"); return
         }
@@ -524,6 +538,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun startAnalysis(snapshot: ChatSnapshot) {
+        if (session.target?.pkg == "com.ss.android.ugc.aweme.lite") traceStep("15 startAnalysis")
         val token = session.begin() ?: run { analyzing = false; return }
         overlay?.setNote(snapshot.note)
         val client = JevClient(prefs)
@@ -548,6 +563,7 @@ open class ChatCaptureService : AccessibilityService() {
                     submitAnalysis {
                         val judgment = client.judge(snapshot, rel, ctx)
                         main.post {
+                            if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("16 模型判断回传 / error=${judgment.error != null}")
                             awaitCurrentTarget(token, "接收判断结果") {
                                 if (judgment.error != null) overlay?.showError(judgment.error)
                                 else overlay?.showJudgment(judgment)
@@ -562,6 +578,7 @@ open class ChatCaptureService : AccessibilityService() {
                             emptyList()
                         }
                         main.post {
+                            if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("17 候选回复回传 / n=${ranked.size} error=${replyError != null}")
                             awaitCurrentTarget(token, "接收候选回复") {
                                 overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
                                 completed()
@@ -633,6 +650,7 @@ open class ChatCaptureService : AccessibilityService() {
         ocrBusy = true
         ocrToken = token
         manualOcrRequested = manual
+        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("6 OCR 工作建立 / rows=${rects.size}")
         val timeout = Runnable {
             if (ocrToken == token) {
                 val requested = manualOcrRequested
@@ -647,6 +665,7 @@ open class ChatCaptureService : AccessibilityService() {
         ocrTimeout = timeout
         main.postDelayed(timeout, 15000)
         awaitCurrentTarget(token, "截屏前") {
+            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("7 呼叫系统截图")
             screenCapture.capture(targetWindowId = token.target.windowId,
                 shouldCapture = { canCaptureWindow(token) }) { res ->
                 if (!session.accepts(token)) {
@@ -656,6 +675,7 @@ open class ChatCaptureService : AccessibilityService() {
                 }
                 when (res) {
                     is ScreenCapture.Result.Failed -> {
+                        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("8 截图失败 code=${res.code}")
                         if (!completeOcr(token)) return@capture
                         if (!manual) lastOcrSignature = ""
                         val transient = res.code == ScreenCapture.CODE_THROTTLED || res.code == 3
@@ -664,12 +684,14 @@ open class ChatCaptureService : AccessibilityService() {
                         else overlay?.showIdle(treeTitle)
                     }
                     is ScreenCapture.Result.Ok -> {
+                        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("8 截图成功 ${res.bitmap.width}x${res.bitmap.height}")
                         awaitCurrentTarget(token, "截屏后确认会话", onInvalid = { check ->
                             res.bitmap.recycle()
                             completeOcr(token)
                             abortRequest(token, "截屏后确认会话", check)
                         }) {
                             if (manualOcrRequested) overlay?.showProgress("正在辨识消息文字…")
+                            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("9 开始逐列 OCR / rows=${rects.size}")
                             ocr.scaleX = res.scaleX; ocr.scaleY = res.scaleY
                             ocr.originX = res.originX; ocr.originY = res.originY
                             if (rects.isNotEmpty()) {
@@ -709,8 +731,10 @@ open class ChatCaptureService : AccessibilityService() {
                 if (text.isNotEmpty()) out[i] = Msg(br.side, text)
                 remaining--
                 if (remaining == 0) {
+                    val recognized = out.filterNotNull()
+                    if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("10 OCR 完成 / recognized=${recognized.size}/${rects.size}")
                     runCatching { bmp.recycle() }
-                    finishOcrSnapshot(ChatSnapshot(title, out.filterNotNull()), pkg, manual = manual, token = token)
+                    finishOcrSnapshot(ChatSnapshot(title, recognized), pkg, manual = manual, token = token)
                 }
             }
         }
@@ -784,7 +808,11 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Shared tail of both OCR paths: dedupe, then analyze or park the bubble. */
     private fun finishOcrSnapshot(snapshot: ChatSnapshot, pkg: String, manual: Boolean, token: ConversationSession.Token) {
-        if (ocrToken != token) return
+        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("11 finishOcrSnapshot / msgs=${snapshot.messages.size}")
+        if (ocrToken != token) {
+            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("11b OCR token 已失效")
+            return
+        }
         awaitCurrentTarget(token, "文字辨识完成") {
             if (!completeOcr(token)) return@awaitCurrentTarget
             acceptOcrSnapshot(snapshot, pkg, manual)
@@ -792,6 +820,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun acceptOcrSnapshot(snapshot: ChatSnapshot, pkg: String, manual: Boolean) {
+        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("12 接受 OCR snapshot / msgs=${snapshot.messages.size}")
         val requested = manual || manualOcrRequested
         // Counts only — OCR'd chat text never goes to logcat.
         Log.i(TAG, "ocr[$pkg] msgs=${snapshot.messages.size} manual=$manual")
@@ -816,6 +845,7 @@ open class ChatCaptureService : AccessibilityService() {
 
         val auto = prefs.ocrAutoAnalyze && prefs.autoAnalyze && snapshot.latestFrom == "other"
         if (requested || auto) {
+            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("13 准备模型分析")
             pendingSnapshot = snapshot
             main.removeCallbacks(debounce)
             runAnalysis(manual = requested)

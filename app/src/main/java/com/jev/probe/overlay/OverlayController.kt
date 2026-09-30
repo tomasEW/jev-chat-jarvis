@@ -44,6 +44,8 @@ class OverlayController(private val ctx: Context) {
     private var dangerDot: View? = null
     private var panel: LinearLayout? = null
     private var contentBox: LinearLayout? = null
+    private var traceBox: TextView? = null
+    private val traceHistory = ArrayDeque<String>()
     private var expanded = false
     private var lp: WindowManager.LayoutParams? = null
 
@@ -172,6 +174,16 @@ class OverlayController(private val ctx: Context) {
         header.addView(iconBtn("✕") { toggle() })
         p.addView(header)
 
+        val trace = TextView(ctx).apply {
+            text = "TRACE v0.3.5：待命"
+            setTextColor(Color.parseColor("#6B7280"))
+            textSize = 10f
+            setPadding(0, dp(4), 0, dp(4))
+            visibility = View.VISIBLE
+        }
+        p.addView(trace)
+        traceBox = trace
+
         val scroll = ScrollView(ctx).apply {
             isVerticalScrollBarEnabled = false
             // Cap the height so the panel stays in the upper area and does not
@@ -284,6 +296,21 @@ class OverlayController(private val ctx: Context) {
     }
 
     // ------------------------------------------------------------ public API
+
+    /** Fixed diagnostic line outside contentBox, so it survives content resets. */
+    fun trace(message: String) {
+        ensureRoot()
+        if (traceHistory.size >= 6) traceHistory.removeFirst()
+        traceHistory.addLast(message)
+        traceBox?.text = "TRACE v0.3.5\n" + traceHistory.joinToString("\n")
+        android.util.Log.i("JEVASSIST", "trace: $message")
+        if (!expanded) toggle()
+    }
+
+    fun clearTrace() {
+        traceHistory.clear()
+        traceBox?.text = "TRACE v0.3.5：待命"
+    }
 
     fun showIdle(title: String?) {
         ensureRoot(); bubble?.alpha = 0.55f
@@ -401,7 +428,7 @@ class OverlayController(private val ctx: Context) {
     fun hide() {
         val r = root ?: return
         runCatching { wm.removeView(r) }
-        root = null; bubble = null; panel = null; contentBox = null; dangerDot = null; expanded = false
+        root = null; bubble = null; panel = null; contentBox = null; traceBox = null; dangerDot = null; expanded = false
     }
 
     // --------------------------------------------------------------- rendering

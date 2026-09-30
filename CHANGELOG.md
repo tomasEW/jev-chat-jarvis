@@ -1,3 +1,9 @@
+# v0.3.5 Douyin trace build
+
+- Adds a fixed TRACE line outside the normal analysis content so blank-panel failures remain observable.
+- Shows Douyin stages from adapter detection through screenshot, row OCR, session validation, and model callbacks.
+- The trace contains only package/window IDs, counts, and state transitions; it does not print chat message content.
+
 ## Douyin test v0.3.4
 
 - Fix mounted panels becoming blank when capture/session cancellation cleared the content without restoring controls. Reset always leaves a cancellation message and a working Analyze button.

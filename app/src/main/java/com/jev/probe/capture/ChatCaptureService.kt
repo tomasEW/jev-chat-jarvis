@@ -518,6 +518,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun runAnalysis(manual: Boolean = false) {
+        if (session.target?.pkg == "com.ss.android.ugc.aweme.lite") traceStep("14 runAnalysis")
         val snapshot = pendingSnapshot ?: run {
             if (manual) overlay?.showError("没有可分析的消息，请重新读取"); return
         }
@@ -536,6 +537,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun startAnalysis(snapshot: ChatSnapshot) {
+        if (session.target?.pkg == "com.ss.android.ugc.aweme.lite") traceStep("15 startAnalysis")
         val token = session.begin() ?: run { analyzing = false; return }
         overlay?.setNote(snapshot.note)
         val client = JevClient(prefs)
@@ -560,6 +562,7 @@ open class ChatCaptureService : AccessibilityService() {
                     submitAnalysis {
                         val judgment = client.judge(snapshot, rel, ctx)
                         main.post {
+                            if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("16 模型判断回传 / error=${judgment.error != null}")
                             awaitCurrentTarget(token, "接收判断结果") {
                                 if (judgment.error != null) overlay?.showError(judgment.error)
                                 else overlay?.showJudgment(judgment)
@@ -574,6 +577,7 @@ open class ChatCaptureService : AccessibilityService() {
                             emptyList()
                         }
                         main.post {
+                            if (token.target.pkg == "com.ss.android.ugc.aweme.lite") traceStep("17 候选回复回传 / n=${ranked.size} error=${replyError != null}")
                             awaitCurrentTarget(token, "接收候选回复") {
                                 overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
                                 completed()
@@ -726,8 +730,10 @@ open class ChatCaptureService : AccessibilityService() {
                 if (text.isNotEmpty()) out[i] = Msg(br.side, text)
                 remaining--
                 if (remaining == 0) {
+                    val recognized = out.filterNotNull()
+                    if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("10 OCR 完成 / recognized=${recognized.size}/${rects.size}")
                     runCatching { bmp.recycle() }
-                    finishOcrSnapshot(ChatSnapshot(title, out.filterNotNull()), pkg, manual = manual, token = token)
+                    finishOcrSnapshot(ChatSnapshot(title, recognized), pkg, manual = manual, token = token)
                 }
             }
         }
@@ -801,7 +807,11 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Shared tail of both OCR paths: dedupe, then analyze or park the bubble. */
     private fun finishOcrSnapshot(snapshot: ChatSnapshot, pkg: String, manual: Boolean, token: ConversationSession.Token) {
-        if (ocrToken != token) return
+        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("11 finishOcrSnapshot / msgs=${snapshot.messages.size}")
+        if (ocrToken != token) {
+            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("11b OCR token 已失效")
+            return
+        }
         awaitCurrentTarget(token, "文字辨识完成") {
             if (!completeOcr(token)) return@awaitCurrentTarget
             acceptOcrSnapshot(snapshot, pkg, manual)
@@ -809,6 +819,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun acceptOcrSnapshot(snapshot: ChatSnapshot, pkg: String, manual: Boolean) {
+        if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("12 接受 OCR snapshot / msgs=${snapshot.messages.size}")
         val requested = manual || manualOcrRequested
         // Counts only — OCR'd chat text never goes to logcat.
         Log.i(TAG, "ocr[$pkg] msgs=${snapshot.messages.size} manual=$manual")
@@ -833,6 +844,7 @@ open class ChatCaptureService : AccessibilityService() {
 
         val auto = prefs.ocrAutoAnalyze && prefs.autoAnalyze && snapshot.latestFrom == "other"
         if (requested || auto) {
+            if (pkg == "com.ss.android.ugc.aweme.lite") traceStep("13 准备模型分析")
             pendingSnapshot = snapshot
             main.removeCallbacks(debounce)
             runAnalysis(manual = requested)

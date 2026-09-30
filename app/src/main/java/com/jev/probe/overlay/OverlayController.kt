@@ -323,6 +323,12 @@ class OverlayController(private val ctx: Context) {
         setOnClickListener { onClick() }
     }
 
+    fun showProgress(message: String) {
+        ensureRoot(); bubble?.alpha = 1f
+        setContent(listOf(hint(message)))
+        if (!expanded) toggle()
+    }
+
     fun showLoading() {
         ensureRoot(); bubble?.alpha = 1f
         ctxNotes = 0; ctxHistory = 0   // counts for the round that is starting
@@ -353,7 +359,8 @@ class OverlayController(private val ctx: Context) {
         ensureRoot(); bubble?.alpha = 1f
         setContent(listOf(
             line("出错了", "#DC2626", 14f, true),
-            hint(msg)))
+            hint(msg), reAnalyzeBtn()))
+        if (!expanded) toggle()
     }
 
     /**

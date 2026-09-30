@@ -455,8 +455,13 @@ open class ChatCaptureService : AccessibilityService() {
             val snap = adapters[PKG_DOUYIN]?.extract(root, resources)
             val usable = snap != null && (snap.messages.isNotEmpty() || snap.bubbleRects.isNotEmpty())
             if (!usable) {
-                val state = if (snap == null) "Adapter失败"
-                    else "rows=0 title=${!snap.title.isNullOrBlank()}"
+                val state = if (snap == null) {
+                    val title = findTitleInActionBar(root, Int.MAX_VALUE,
+                        resources.displayMetrics.widthPixels, resources, 0.12, 0.88)
+                    val group = isDouyinGroupTitle(title)
+                    val groupRows = if (group) collectDouyinGroupBubbleRects(root, resources).size else 0
+                    "Adapter失败 group=$group avatarRows=$groupRows"
+                } else "rows=0 title=${!snap.title.isNullOrBlank()} group=${isDouyinGroupTitle(snap.title)}"
                 traceStep("3R ${state} / attempt=${attempt + 1}")
                 if (attempt < 6) {
                     overlay?.showProgress("抖音聊天节点暂时不完整，正在自动重试 ${attempt + 2}/7…")

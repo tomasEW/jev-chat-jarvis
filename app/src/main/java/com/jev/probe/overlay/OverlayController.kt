@@ -176,7 +176,7 @@ class OverlayController(private val ctx: Context) {
         p.addView(header)
 
         val trace = TextView(ctx).apply {
-            text = "TRACE v0.3.7：待命"
+            text = "TRACE v0.3.8 [$instanceId]：待命"
             setTextColor(Color.parseColor("#6B7280"))
             textSize = 10f
             setPadding(0, dp(4), 0, dp(4))
@@ -303,17 +303,40 @@ class OverlayController(private val ctx: Context) {
         ensureRoot()
         if (traceHistory.size >= 6) traceHistory.removeFirst()
         traceHistory.addLast(message)
-        traceBox?.text = "TRACE v0.3.7\n" + traceHistory.joinToString("\n")
+        traceBox?.text = "TRACE v0.3.8\n" + traceHistory.joinToString("\n")
         android.util.Log.i("JEVASSIST", "trace: $message")
         if (!expanded) toggle()
     }
 
     fun clearTrace() {
         traceHistory.clear()
-        traceBox?.text = "TRACE v0.3.7 [$instanceId]：待命"
+        traceBox?.text = "TRACE v0.3.8 [$instanceId]：待命"
     }
 
     fun debugId(): String = instanceId
+
+    private val manualAnalyzeTag = "jev-manual-analyze"
+
+    private fun hasManualAnalyzeButton(): Boolean {
+        val c = contentBox ?: return false
+        for (i in 0 until c.childCount) {
+            if (c.getChildAt(i).tag == manualAnalyzeTag) return true
+        }
+        return false
+    }
+
+    /**
+     * Douyin emits accessibility/content events while a finger is still down.
+     * Dispatch manual analysis on ACTION_DOWN so an event-driven content refresh
+     * cannot remove the pressed View before Android delivers ACTION_UP/click.
+     */
+    private fun dispatchManualAnalyze(source: String) {
+        clearTrace()
+        val cb = onManualAnalyze
+        trace("0 $source overlay=$instanceId callback=${if (cb == null) "NULL" else "OK"}")
+        if (cb == null) trace("0b callback=NULL，按钮没有服务接收者")
+        else cb.invoke()
+    }
 
     fun showIdle(title: String?) {
         ensureRoot(); bubble?.alpha = 0.55f
@@ -340,11 +363,15 @@ class OverlayController(private val ctx: Context) {
         lastFill = null
         noteText = null
         replyError = null
-        // The window remains "showing" during reset. Leaving it empty here
-        // prevented the OCR path from restoring any controls or cancellation text.
-        setContent(listOf(
-            hint("会话已更新或分析已停止，请重新分析"),
-            bigButton("分析当前对话") { onManualAnalyze?.invoke() }))
+        // Douyin can emit several content-changed events during one physical tap.
+        // Replacing this button between ACTION_DOWN and ACTION_UP makes Android
+        // cancel the click. If the manual button is already visible, keep the
+        // exact same View instance instead of rebuilding identical content.
+        if (!hasManualAnalyzeButton()) {
+            setContent(listOf(
+                hint("会话已更新或分析已停止，请重新分析"),
+                bigButton("分析当前对话") { onManualAnalyze?.invoke() }))
+        }
     }
 
     private fun bigButton(label: String, onClick: () -> Unit) = TextView(ctx).apply {
@@ -355,15 +382,20 @@ class OverlayController(private val ctx: Context) {
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         isClickable = true
-        setOnClickListener {
-            if (label == "分析当前对话") {
-                val cb = onManualAnalyze
-                trace("0 click overlay=$instanceId callback=${if (cb == null) "NULL" else "OK"}")
-                if (cb == null) trace("0b callback=NULL，按钮没有服务接收者")
-                else cb.invoke()
-            } else {
-                onClick()
+        if (label == "分析当前对话") {
+            tag = manualAnalyzeTag
+            // Physical taps fire immediately on DOWN. Returning true prevents the
+            // normal click from firing a second analysis on UP.
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    dispatchManualAnalyze("DOWN")
+                }
+                true
             }
+            // Keep ACTION_CLICK / keyboard / accessibility activation working.
+            setOnClickListener { dispatchManualAnalyze("CLICK") }
+        } else {
+            setOnClickListener { onClick() }
         }
     }
 
@@ -565,7 +597,7 @@ class OverlayController(private val ctx: Context) {
         text = "重新分析"; textSize = 13f; gravity = Gravity.CENTER
         setTextColor(Color.parseColor("#6B7280"))
         setPadding(dp(10), dp(10), dp(10), dp(4))
-        setOnClickListener { onManualAnalyze?.invoke() }
+        setOnClickListener { dispatchManualAnalyze("REANALYZE") }
     }
 
     private fun tintBubbleDanger(score: Double) {

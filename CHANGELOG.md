@@ -1,3 +1,11 @@
+## Douyin test v0.3.4
+
+- Fix mounted panels becoming blank when capture/session cancellation cleared the content without restoring controls. Reset always leaves a cancellation message and a working Analyze button.
+- Treat transiently unavailable nodes in the same app/window as incomplete evidence during OCR or analysis. Verification is now pure, with four 200 ms retries; confirmed app/window/conversation changes still reject old callbacks and fill actions.
+- Use one adapter extraction per foreground observation. Capture the verified application window through overlay transitions, then verify the full conversation again before OCR and rendering results.
+- Surface capture and verification failures with the failing stage instead of silently returning. Add UI regression tests for cancellation/repeated reset and session tests for incomplete Douyin trees, recovery, and real app changes.
+- Preserve multi-app routing and the existing signing key; versionCode 11. Actual device validation remains required.
+
 ## Douyin test v0.3.3
 
 - Route manual analysis using the live foreground application, never the previous chat adapter. LINE and other apps retain explicit whole-screen OCR.

@@ -85,4 +85,45 @@ class ConversationSessionTest {
         assertFalse(session.accepts(screenshot))
         assertFalse(session.accepts(request))
     }
+    @Test fun missingDouyinNodesDoNotInvalidateCaptureAndCanRecover() {
+        val session = ConversationSession()
+        val douyin = chatA.copy(pkg = "com.ss.android.ugc.aweme.lite")
+        session.observe(douyin)
+        val request = session.token()!!
+        repeat(3) {
+            assertEquals(ConversationSession.Check.UNAVAILABLE,
+                session.check(request, douyin.pkg, douyin.windowId, null))
+            assertTrue(session.accepts(request))
+        }
+        assertEquals(ConversationSession.Check.CURRENT,
+            session.check(request, douyin.pkg, douyin.windowId, douyin))
+    }
+
+    @Test fun incompleteTreeInAnotherAppStillRejectsOriginalCapture() {
+        val session = ConversationSession()
+        session.observe(chatA)
+        val request = session.token()!!
+        assertEquals(ConversationSession.Check.CHANGED,
+            session.check(request, "jp.naver.line.android", 12, null))
+    }
+
+    @Test fun missingRootCanRetryButCannotAuthorizeFill() {
+        val session = ConversationSession()
+        session.observe(chatA)
+        val request = session.token()!!
+        assertEquals(ConversationSession.Check.UNAVAILABLE,
+            session.check(request, null, null, null))
+        assertTrue(session.accepts(request))
+    }
+
+    @Test fun confirmedChatChangeAndCancelledRequestCannotRecover() {
+        val session = ConversationSession()
+        session.observe(chatA)
+        val request = session.begin()!!
+        assertEquals(ConversationSession.Check.CHANGED,
+            session.check(request, chatB.pkg, chatB.windowId, chatB))
+        session.observe(chatB)
+        assertEquals(ConversationSession.Check.STALE,
+            session.check(request, chatA.pkg, chatA.windowId, chatA))
+    }
 }

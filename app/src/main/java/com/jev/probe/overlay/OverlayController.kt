@@ -310,7 +310,11 @@ class OverlayController(private val ctx: Context) {
         lastFill = null
         noteText = null
         replyError = null
-        contentBox?.removeAllViews()
+        // The window remains "showing" during reset. Leaving it empty here
+        // prevented the OCR path from restoring any controls or cancellation text.
+        setContent(listOf(
+            hint("会话已更新或分析已停止，请重新分析"),
+            bigButton("分析当前对话") { onManualAnalyze?.invoke() }))
     }
 
     private fun bigButton(label: String, onClick: () -> Unit) = TextView(ctx).apply {

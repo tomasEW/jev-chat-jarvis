@@ -1,3 +1,9 @@
+# v0.3.6 Douyin analyze button stability
+
+- Stops showIdle() from recreating the Analyze button on every accessibility content-change event.
+- Adds a visible TRACE marker when the Analyze button click is actually delivered.
+- Intended for Douyin Lite, whose animated chat screen emits frequent accessibility events that could remove the pressed button between ACTION_DOWN and ACTION_UP.
+
 # v0.3.5 Douyin trace build
 
 - Adds a fixed TRACE line outside the normal analysis content so blank-panel failures remain observable.

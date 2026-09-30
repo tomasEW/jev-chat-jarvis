@@ -42,6 +42,7 @@ import java.util.concurrent.RejectedExecutionException
  */
 open class ChatCaptureService : AccessibilityService() {
 
+    private val serviceInstanceId = Integer.toHexString(System.identityHashCode(this))
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newFixedThreadPool(2)
 
@@ -264,11 +265,26 @@ open class ChatCaptureService : AccessibilityService() {
         prefs = Prefs(this)
         getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(preferencesListener)
-        overlay = OverlayController(this)
-        overlay?.onManualAnalyze = {
+        // Enforce exactly one live overlay per process. Accessibility services can
+        // reconnect without a process restart; an old WindowManager view would
+        // otherwise remain tappable while this service updates a new controller.
+        overlay?.hide()
+        liveOverlay?.takeIf { it !== overlay }?.hide()
+
+        val controller = OverlayController(this)
+        overlay = controller
+        liveOverlay = controller
+        controller.trace("service connected S=$serviceInstanceId O=${controller.debugId()}")
+        controller.onManualAnalyze = callback@{
+            controller.trace("0c callback entered S=$serviceInstanceId O=${controller.debugId()} live=${liveOverlay === controller}")
+            if (liveOverlay !== controller || overlay !== controller) {
+                controller.trace("0d stale overlay callback blocked")
+                controller.hide()
+                return@callback
+            }
             try { analyzeCurrentApp() } catch (e: Exception) {
                 Log.w(TAG, "manual capture failed: ${e.javaClass.simpleName}")
-                overlay?.showError("读取当前画面失败：${e.javaClass.simpleName}")
+                controller.showError("读取当前画面失败：${e.javaClass.simpleName}")
             }
         }
         // Bubble menu: file the open conversation as a knowledge-base contact.
@@ -948,11 +964,13 @@ open class ChatCaptureService : AccessibilityService() {
         overlay?.onSaveContact = null
         overlay?.onOcrCapture = null
         overlay?.hide()
+        if (liveOverlay === overlay) liveOverlay = null
         overlay = null
         worker.shutdownNow()
     }
 
     companion object {
+        @Volatile private var liveOverlay: OverlayController? = null
         private const val TAG = "JEVASSIST"
 
         /** WeChat's package. Reading it (node tree / screenshot / OCR) is what

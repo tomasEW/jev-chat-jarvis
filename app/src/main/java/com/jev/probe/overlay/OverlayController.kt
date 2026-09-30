@@ -37,6 +37,7 @@ import kotlin.math.roundToInt
  */
 class OverlayController(private val ctx: Context) {
 
+    private val instanceId = Integer.toHexString(System.identityHashCode(this))
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val prefs = Prefs(ctx)
     private var root: FrameLayout? = null
@@ -175,7 +176,7 @@ class OverlayController(private val ctx: Context) {
         p.addView(header)
 
         val trace = TextView(ctx).apply {
-            text = "TRACE v0.3.5：待命"
+            text = "TRACE v0.3.7：待命"
             setTextColor(Color.parseColor("#6B7280"))
             textSize = 10f
             setPadding(0, dp(4), 0, dp(4))
@@ -302,15 +303,17 @@ class OverlayController(private val ctx: Context) {
         ensureRoot()
         if (traceHistory.size >= 6) traceHistory.removeFirst()
         traceHistory.addLast(message)
-        traceBox?.text = "TRACE v0.3.5\n" + traceHistory.joinToString("\n")
+        traceBox?.text = "TRACE v0.3.7\n" + traceHistory.joinToString("\n")
         android.util.Log.i("JEVASSIST", "trace: $message")
         if (!expanded) toggle()
     }
 
     fun clearTrace() {
         traceHistory.clear()
-        traceBox?.text = "TRACE v0.3.5：待命"
+        traceBox?.text = "TRACE v0.3.7 [$instanceId]：待命"
     }
+
+    fun debugId(): String = instanceId
 
     fun showIdle(title: String?) {
         ensureRoot(); bubble?.alpha = 0.55f
@@ -353,8 +356,14 @@ class OverlayController(private val ctx: Context) {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         isClickable = true
         setOnClickListener {
-            if (label == "分析当前对话") trace("0 分析按钮 click 已送出")
-            onClick()
+            if (label == "分析当前对话") {
+                val cb = onManualAnalyze
+                trace("0 click overlay=$instanceId callback=${if (cb == null) "NULL" else "OK"}")
+                if (cb == null) trace("0b callback=NULL，按钮没有服务接收者")
+                else cb.invoke()
+            } else {
+                onClick()
+            }
         }
     }
 

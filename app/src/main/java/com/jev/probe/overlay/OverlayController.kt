@@ -1,5 +1,7 @@
 package com.jev.probe.overlay
 
+import com.jev.probe.BuildConfig
+
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -176,7 +178,8 @@ class OverlayController(private val ctx: Context) {
         p.addView(header)
 
         val trace = TextView(ctx).apply {
-            text = "TRACE v0.3.8 [$instanceId]：待命"
+            val traceVersion = BuildConfig.VERSION_NAME.substringAfter("douyin-", BuildConfig.VERSION_NAME)
+            text = "TRACE $traceVersion [$instanceId]：待命"
             setTextColor(Color.parseColor("#6B7280"))
             textSize = 10f
             setPadding(0, dp(4), 0, dp(4))

@@ -1,3 +1,10 @@
+# v0.3.7 Douyin click/overlay-instance diagnostics
+
+- Records the click inside the actual visible overlay before invoking the service callback.
+- Shows whether onManualAnalyze is NULL or connected and includes overlay/service instance IDs.
+- Enforces one live overlay per process and removes stale WindowManager overlays when the accessibility service reconnects.
+- Retains the v0.3.6 fix that stops noisy Douyin accessibility events from recreating the analyze button while it is being pressed.
+
 # v0.3.6 Douyin analyze button stability
 
 - Stops showIdle() from recreating the Analyze button on every accessibility content-change event.

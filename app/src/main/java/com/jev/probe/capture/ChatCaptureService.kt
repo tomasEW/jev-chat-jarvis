@@ -302,6 +302,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun analyzeCurrentApp() {
+        overlay?.clearTrace()
         traceStep("1 按下分析")
         if (!prefs.enabled) { overlay?.showError("Jev 已暂停，请先开启"); return }
         if (ocrBusy) {

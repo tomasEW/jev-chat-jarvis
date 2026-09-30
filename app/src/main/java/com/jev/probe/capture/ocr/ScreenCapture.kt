@@ -63,7 +63,7 @@ class ScreenCapture(
     private val main = Handler(Looper.getMainLooper())
 
     /** Take one screenshot. [onResult] runs on the main thread, exactly once. */
-    fun capture(shouldCapture: () -> Boolean = { true }, onResult: (Result) -> Unit) {
+    fun capture(targetWindowId: Int? = null, shouldCapture: () -> Boolean = { true }, onResult: (Result) -> Unit) {
         val now = SystemClock.elapsedRealtime()
         val need = requiredInterval()
         if (now - lastAttemptAt < need) {
@@ -87,12 +87,12 @@ class ScreenCapture(
         main.postDelayed({
             // The foreground can change while the overlay settles. Do not shoot
             // the next app and label its pixels as the original conversation.
-            if (shouldCapture()) shoot(finish, done)
+            if (shouldCapture()) shoot(targetWindowId, finish, done)
             else finish(Result.Failed(CODE_CANCELLED, "会话已变化，已取消截屏"))
         }, HIDE_SETTLE_MS)
     }
 
-    private fun shoot(finish: (Result) -> Unit, done: AtomicBoolean) {
+    private fun shoot(targetWindowId: Int?, finish: (Result) -> Unit, done: AtomicBoolean) {
         val exec = service.mainExecutor
         // Which area the picture will cover. Set just before the window shot is
         // issued and read inside the callback, so the mapping always matches the
@@ -120,7 +120,11 @@ class ScreenCapture(
         // some OEM builds that refuse a whole-display capture. Fall back to the
         // display shot when the window id is unknown or the call is unavailable.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val node = runCatching { service.rootInActiveWindow }.getOrNull()
+            val node = runCatching {
+                if (targetWindowId == null) service.rootInActiveWindow
+                else service.windows.firstOrNull { it.id == targetWindowId }?.root
+                    ?: service.rootInActiveWindow?.takeIf { it.windowId == targetWindowId }
+            }.getOrNull()
             val windowId = node?.windowId
             if (windowId != null && windowId != -1) {
                 windowBounds = runCatching {

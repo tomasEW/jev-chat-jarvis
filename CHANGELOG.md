@@ -1,3 +1,12 @@
+## Douyin test v0.3.3
+
+- Route manual analysis using the live foreground application, never the previous chat adapter. LINE and other apps retain explicit whole-screen OCR.
+- Resolve the application beneath the Jev overlay/keyboard for capture and session validation. Window screenshots explicitly target that application window.
+- Show capture/recognition progress and actionable errors; prevent same-chat accessibility events from replacing progress, and time out stalled OCR after 15 seconds.
+- A manual tap during automatic OCR requests analysis once recognition completes. Error panels include a retry action.
+- Add foreground-window routing regression tests and run unit tests in the signed APK workflow. Preserve the existing application ID and test signing key; increment versionCode to 10.
+- Device validation still required: Douyin DM row recognition and LINE OCR on the target phone.
+
 # 更新日志
 
 格式：每版按 新增 / 改进 / 修复 / 已知限制 / 下载 归类，人话版，不是提交列表。

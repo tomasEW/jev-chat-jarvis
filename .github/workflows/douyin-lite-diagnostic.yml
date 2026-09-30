@@ -8,7 +8,7 @@ on:
   push:
     branches:
       - feature/douyin-lite-ui-diagnostics
-      - fix/douyin-manual-analyze-v0.3.2
+      - fix/multi-app-manual-analyze-v0.3.3
     paths:
       - "app/**"
       - "gradle/**"
@@ -55,18 +55,18 @@ jobs:
           JEV_DOUYIN_TEST_KEYPASS: jev-douyin-test-2026
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.3.2.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Jev-DouyinLite-v0.3.3.apk
       - name: Verify APK signature and version
         shell: bash
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.3.2.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.3.2.apk | head -5
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/Jev-DouyinLite-v0.3.3.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/Jev-DouyinLite-v0.3.3.apk | head -5
       - name: Upload versioned installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Jev-DouyinLite-v0.3.2
-          path: dist/Jev-DouyinLite-v0.3.2.apk
+          name: Jev-DouyinLite-v0.3.3
+          path: dist/Jev-DouyinLite-v0.3.3.apk
           if-no-files-found: error
           retention-days: 14

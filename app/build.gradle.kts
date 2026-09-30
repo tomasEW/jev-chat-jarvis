@@ -23,8 +23,8 @@ android {
         applicationId = "com.jev.probe"
         minSdk = 30
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.4-douyin-0.3.3"
+        versionCode = 11
+        versionName = "1.4-douyin-0.3.4"
 
         // ML Kit's bundled Chinese recognizer ships native libs for every ABI.
         // The target phone (and every phone this can run on: minSdk 30) is
@@ -87,6 +87,7 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

@@ -116,8 +116,8 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Read the live target, never the previous chat's cached/stabilized title. */
     private fun targetFor(root: AccessibilityNodeInfo): ConversationSession.Target? {
-        val pkg = root.packageName?.toString()
-        if (pkg != null && pkg in adapters) lastAdaptedPkg = pkg ?: return null
+        val pkg = root.packageName?.toString() ?: return null
+        if (pkg in adapters) lastAdaptedPkg = pkg
         if (pkg == PKG_WECHAT || pkg == packageName || pkg == "com.android.systemui" ||
             pkg.contains("launcher", true) || pkg == "com.miui.home") return null
         val adapter = adapters[pkg]
@@ -281,6 +281,7 @@ open class ChatCaptureService : AccessibilityService() {
     private fun maybeCapture() {
         val root = rootInActiveWindow ?: run { leaveConversation(); overlay?.hide(); return }
         val pkg = root.packageName?.toString()
+        if (pkg != null && pkg in adapters) lastAdaptedPkg = pkg
         // WeChat is fully disabled — no tree read, no screenshot, no OCR, no fill.
         // A content-changed / scrolled event in WeChat only re-shows the one-time
         // notice (deduped); it must never reach an adapter or the OCR path.
@@ -679,7 +680,8 @@ open class ChatCaptureService : AccessibilityService() {
         val input = when (token.target.pkg) {
             "com.tencent.mobileqq" -> root.findAccessibilityNodeInfosByViewId("com.tencent.mobileqq:id/input").firstOrNull()
             "com.ss.android.lark" -> root.findAccessibilityNodeInfosByViewId("com.ss.android.lark:id/kb_rich_text_content").firstOrNull()
-            "com.ss.android.ugc.aweme.lite" -> root.findAccessibilityNodeInfosByViewId(DouyinLiteAdapter.INPUT_ID).firstOrNull()
+            "com.ss.android.ugc.aweme.lite" ->
+                root.findAccessibilityNodeInfosByViewId(DouyinLiteAdapter.INPUT_ID).firstOrNull() ?: findEditable(root)
             "com.twitter.android" -> findEditable(root)
             else -> null // Unknown apps support explicit clipboard copy, not unverified writes.
         }

@@ -523,28 +523,40 @@ class DouyinLiteAdapter : ChatAppAdapter {
     override val pkg = "com.ss.android.ugc.aweme.lite"
 
     override fun extract(root: AccessibilityNodeInfo, res: Resources): ChatSnapshot? {
+        val width = res.displayMetrics.widthPixels
+        val height = res.displayMetrics.heightPixels
         var recycler: AccessibilityNodeInfo? = null
-        var hasInput = false
+        var input: AccessibilityNodeInfo? = null
+        val lists = ArrayList<AccessibilityNodeInfo>()
+        val inputs = ArrayList<AccessibilityNodeInfo>()
         val stack = ArrayDeque<AccessibilityNodeInfo>()
         stack.addLast(root)
         var guard = 0
-        while (stack.isNotEmpty() && guard < 6000) {
+        while (stack.isNotEmpty() && guard < 8000) {
             guard++
             val node = stack.removeLast()
-            when (node.viewIdResourceName) {
-                RECYCLER_ID -> recycler = node
-                INPUT_ID -> hasInput = node.isEditable
-            }
+            val id = node.viewIdResourceName
+            if (id == RECYCLER_ID) recycler = node
+            if (id == INPUT_ID) input = node
+            val b = Rect(); node.getBoundsInScreen(b)
+            val cls = node.className?.toString().orEmpty()
+            if (node.isEditable && node.isVisibleToUser && b.centerY() > height * 0.68) inputs.add(node)
+            if ((cls.contains("RecyclerView") || node.isScrollable) && node.childCount >= 2 &&
+                b.width() > width * 0.70 && b.height() > height * 0.30) lists.add(node)
             for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
         }
-        val list = recycler
-        if (!hasInput || list == null) return null
+        input = input ?: inputs.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.bottom }
+        val ib = Rect(); input?.getBoundsInScreen(ib)
+        recycler = recycler ?: lists.filter { n ->
+            val b = Rect(); n.getBoundsInScreen(b); input != null && b.top < ib.top
+        }.maxByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.height() }
+        if (input == null || recycler == null) return null
 
         val rects = collectDouyinLiteBubbleRects(root, res)
         val firstTop = rects.minOfOrNull { it.rect.top } ?: Int.MAX_VALUE
-        val title = findTitleInActionBar(root, firstTop, res.displayMetrics.widthPixels, res, 0.15, 0.85)
+        val title = findTitleInActionBar(root, firstTop, width, res, 0.12, 0.88)
         return ChatSnapshot(title, emptyList(), rects,
-            note = "抖音极致版：语音需先手动展开“显示文字”后才会纳入分析")
+            note = "抖音极速版：语音需先手动展开“显示文字”后才会纳入分析")
     }
 
     companion object {

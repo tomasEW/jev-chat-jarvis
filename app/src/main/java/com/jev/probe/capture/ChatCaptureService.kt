@@ -55,6 +55,10 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Submit to the worker, ignoring rejection after the service is torn down
      *  (a stale overlay callback must never crash the process). */
+    private fun traceStep(message: String) {
+        overlay?.trace(message)
+    }
+
     private fun submit(task: () -> Unit) {
         try { worker.execute(task) } catch (_: RejectedExecutionException) { }
     }
@@ -296,6 +300,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun analyzeCurrentApp() {
+        traceStep("1 按下分析")
         if (!prefs.enabled) { overlay?.showError("Jev 已暂停，请先开启"); return }
         if (ocrBusy) {
             manualOcrRequested = true
@@ -307,6 +312,7 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showError("找不到当前 App 窗口，请回到聊天页面再试"); return
         }
         val pkg = root.packageName?.toString().orEmpty()
+        traceStep("2 前景 $pkg / window=${root.windowId}")
         if (pkg == PKG_WECHAT) { showWeChatDisabled(auto = false); return }
         val adapter = adapters[pkg]
         if (adapter == null) {
@@ -315,8 +321,10 @@ open class ChatCaptureService : AccessibilityService() {
             return
         }
         val snap = adapter.extract(root, resources) ?: run {
+            traceStep("3 Adapter 失败")
             overlay?.showError("已侦测到 $pkg，但找不到聊天列表或输入框"); return
         }
+        traceStep("3 Adapter OK：rows=${snap.bubbleRects.size} msgs=${snap.messages.size} title=${!snap.title.isNullOrBlank()}")
         val target = targetFor(root, snap) ?: run {
             overlay?.showError("已侦测到 $pkg，但无法确认当前会话标题"); return
         }
@@ -324,6 +332,7 @@ open class ChatCaptureService : AccessibilityService() {
             overlay?.showError("当前会话不在白名单内，请检查设置"); return
         }
         observeTarget(target)
+        traceStep("4 会话确认 OK / window=${target.windowId}")
         if (snap.messages.isNotEmpty()) {
             currentSnapshot = snap
             pendingSnapshot = snap
@@ -331,6 +340,7 @@ open class ChatCaptureService : AccessibilityService() {
         } else if (pkg == DouyinLiteAdapter().pkg && snap.bubbleRects.isEmpty()) {
             overlay?.showError("已侦测到抖音聊天，但没有找到可辨识的消息列")
         } else {
+            traceStep("5 准备截屏 / rows=${snap.bubbleRects.size}")
             overlay?.showProgress("正在截屏辨识…")
             ocrCapture(snap.title, snap.bubbleRects, pkg, manual = true)
         }

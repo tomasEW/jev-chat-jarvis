@@ -633,6 +633,9 @@ internal fun collectDouyinLiteBubbleRects(
             }
             for (j in n.childCount - 1 downTo 0) n.getChild(j)?.let { q.addLast(it) }
         }
+        // Never guess sender side. Rows without a clear avatar-side signal
+        // (or with an ambiguous tie) are excluded from OCR/AI input.
+        if (leftScore == rightScore) continue
         val side = if (rightScore > leftScore) "me" else "other"
         out.add(BubbleRect(Rect(rb), side))
     }

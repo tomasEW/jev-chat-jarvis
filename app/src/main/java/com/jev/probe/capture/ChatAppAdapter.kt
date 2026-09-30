@@ -571,20 +571,26 @@ internal fun collectDouyinLiteBubbleRects(
     res: Resources
 ): List<BubbleRect> {
     val width = res.displayMetrics.widthPixels
+    val height = res.displayMetrics.heightPixels
     var recycler: AccessibilityNodeInfo? = null
+    val candidates = ArrayList<AccessibilityNodeInfo>()
     val stack = ArrayDeque<AccessibilityNodeInfo>()
     stack.addLast(root)
     var guard = 0
-    while (stack.isNotEmpty() && guard < 6000) {
+    while (stack.isNotEmpty() && guard < 8000) {
         guard++
         val n = stack.removeLast()
-        if (n.viewIdResourceName == DouyinLiteAdapter.RECYCLER_ID) {
-            recycler = n
-            break
-        }
+        if (n.viewIdResourceName == DouyinLiteAdapter.RECYCLER_ID) recycler = n
+        val b = Rect(); n.getBoundsInScreen(b)
+        val cls = n.className?.toString().orEmpty()
+        if ((cls.contains("RecyclerView") || n.isScrollable) && n.childCount >= 2 &&
+            b.width() > width * 0.70 && b.height() > height * 0.30
+        ) candidates.add(n)
         for (i in n.childCount - 1 downTo 0) n.getChild(i)?.let { stack.addLast(it) }
     }
-    val list = recycler ?: return emptyList()
+    val list = recycler ?: candidates.maxByOrNull { n ->
+        val b = Rect(); n.getBoundsInScreen(b); b.height()
+    } ?: return emptyList()
     val out = ArrayList<BubbleRect>()
     for (i in 0 until list.childCount) {
         val row = list.getChild(i) ?: continue
